@@ -1,0 +1,13 @@
+# Cloud Run source deploy ignore rules.
+# Keep pnpm lockfile available for reproducible installs in Docker build.
+.git
+.gitignore
+node_modules
+.env
+.env.local
+coverage
+dist
+.next
+*.log
+
+!pnpm-lock.yaml

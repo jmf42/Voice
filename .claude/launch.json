@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": [".claude/start-api.mjs"],
+      "port": 4000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": [".claude/start-web.mjs"],
+      "port": 5173
+    }
+  ]
+}

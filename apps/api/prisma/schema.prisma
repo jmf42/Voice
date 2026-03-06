@@ -1,0 +1,229 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Urgency {
+  urgent
+  normal
+}
+
+enum TimeWindow {
+  morning
+  afternoon
+  evening
+  specific
+}
+
+enum JobStatus {
+  urgent
+  new
+  confirmed
+  closed
+}
+
+enum CallOutcome {
+  QUALIFIED_JOB
+  ESCALATED_LIVE_TRANSFER
+  ESCALATED_CALLBACK_SLA
+}
+
+model Tenant {
+  id         String          @id @default(cuid())
+  name       String
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  settings   TenantSettings?
+  users      User[]
+  calls      Call[]
+  jobs       Job[]
+  messages   Message[]
+  calendars  CalendarConnection[]
+  calendarEvents CalendarEvent[]
+  auditLogs  AuditLog[]
+}
+
+model TenantSettings {
+  id                       String   @id @default(cuid())
+  tenantId                 String   @unique
+  tenant                   Tenant   @relation(fields: [tenantId], references: [id])
+  enabled                  Boolean  @default(true)
+  businessName             String
+  businessPhone            String
+  escalationPhone          String
+  callbackSlaMinutes       Int      @default(30)
+  languages                String[]
+  calendarEnabled          Boolean  @default(false)
+  businessContext           String   @default("")
+  vertical                 String   @default("other")
+  websiteUrl               String   @default("")
+  openingHours             Json     @default("{}")
+  recordingConsentEnabled  Boolean  @default(false)
+  faqs                     Json     @default("[]")
+  services                 Json     @default("[]")
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  email     String
+  role      String
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@unique([tenantId, email])
+}
+
+model Call {
+  id             String      @id @default(cuid())
+  tenantId       String
+  tenant         Tenant      @relation(fields: [tenantId], references: [id])
+  twilioCallSid  String
+  callerPhone    String
+  currentStep    String      @default("problem")
+  outcome        CallOutcome?
+  urgency        Urgency     @default(normal)
+  issueText      String?
+  addressRaw     String?
+  addressConfirmed Boolean   @default(false)
+  preferredTimeWindow TimeWindow?
+  languageDetected String?
+  lowConfidenceCount Int     @default(0)
+  phoneConfirmed String?
+  transcript     String?
+  transcriptUri  String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  steps          CallStep[]
+  events         CallEvent[]
+  job            Job?
+
+  @@index([tenantId, createdAt])
+  @@unique([tenantId, twilioCallSid])
+}
+
+model CallStep {
+  id        String   @id @default(cuid())
+  callId    String
+  call      Call     @relation(fields: [callId], references: [id])
+  step      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@index([callId, createdAt])
+}
+
+model CallEvent {
+  id        String   @id @default(cuid())
+  callId    String
+  call      Call     @relation(fields: [callId], references: [id])
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@index([callId, createdAt])
+}
+
+model Job {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  tenant             Tenant    @relation(fields: [tenantId], references: [id])
+  callId             String    @unique
+  call               Call      @relation(fields: [callId], references: [id])
+  status             JobStatus
+  callerPhone        String
+  addressRaw         String
+  addressConfirmed   Boolean
+  urgency            Urgency
+  preferredTimeWindow TimeWindow
+  jobSummary         String
+  accessNotes        String?
+  serviceHint        String?
+  riskFlags          String[]
+  languageDetected   String?
+  transcript         String?
+  bookingStatus      String?
+  confirmedSlotStart DateTime?
+  confirmedSlotEnd   DateTime?
+  externalEventId    String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  actions            JobAction[]
+
+  @@index([tenantId, status, createdAt])
+}
+
+model JobAction {
+  id        String   @id @default(cuid())
+  jobId      String
+  job        Job     @relation(fields: [jobId], references: [id])
+  action     String
+  payload    Json
+  createdAt  DateTime @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+model Message {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  callId      String
+  providerSid String?  @unique
+  toPhone     String
+  kind        String
+  body        String
+  status      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, createdAt])
+}
+
+model CalendarConnection {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  provider     String
+  refreshToken String
+  accessToken  String?
+  calendarId   String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model CalendarEvent {
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  jobId          String
+  slotStartAt    DateTime
+  slotEndAt      DateTime?
+  externalEventId String?
+  createdAt      DateTime @default(now())
+
+  @@unique([jobId, slotStartAt])
+  @@index([tenantId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  callId    String?
+  jobId     String?
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}

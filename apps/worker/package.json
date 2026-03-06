@@ -1,0 +1,19 @@
+{
+  "name": "@dispatchos/worker",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src test --ext .ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dispatchos/config": "workspace:*",
+    "bullmq": "^5.41.4",
+    "twilio": "^5.4.4"
+  }
+}
