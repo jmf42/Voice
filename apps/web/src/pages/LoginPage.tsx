@@ -47,7 +47,11 @@ export function LoginPage() {
       await sendMagicLink(email.trim());
       setMessage('Sign-in link sent. Check your inbox and open the link on this device.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to send sign-in link.');
+      setMessage(
+        error instanceof Error
+          ? `${error.message} If email sign-in is not ready yet, use the demo access buttons below.`
+          : 'Unable to send sign-in link. Use the demo access buttons below.',
+      );
     } finally {
       setBusy(false);
     }
@@ -96,6 +100,32 @@ export function LoginPage() {
               <Icon name="zap" size={14} />
               Send login link
             </button>
+            {canUseDevFallback() ? (
+              <>
+                <div className="card-divider" />
+                <p className="helper">
+                  If email sign-in is not working yet, use temporary demo access.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => handleDemoLogin('operator')}
+                    disabled={busy}
+                    className="ghost"
+                  >
+                    <Icon name="zap" size={14} />
+                    Continue as business owner
+                  </button>
+                  <button
+                    onClick={() => handleDemoLogin('client_admin')}
+                    disabled={busy}
+                    className="ghost"
+                  >
+                    <Icon name="briefcase" size={14} />
+                    Continue as manager
+                  </button>
+                </div>
+              </>
+            ) : null}
           </article>
         ) : (
           <article className="settings-card login-card">
