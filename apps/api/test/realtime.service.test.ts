@@ -117,7 +117,13 @@ describe('RealtimeConversationService', () => {
 
     ws.open();
     const sessionUpdate = ws.sent
-      .map((entry) => JSON.parse(entry) as { type: string; session?: { instructions?: string } })
+      .map(
+        (entry) =>
+          JSON.parse(entry) as {
+            type: string;
+            session?: { instructions?: string; max_response_output_tokens?: number };
+          },
+      )
       .find((entry) => entry.type === 'session.update');
 
     expect(sessionUpdate?.session?.instructions).toContain(
@@ -126,6 +132,10 @@ describe('RealtimeConversationService', () => {
     expect(sessionUpdate?.session?.instructions).toContain(
       'Never switch to French, Spanish, or any other language',
     );
+    expect(sessionUpdate?.session?.instructions).toContain(
+      'Use at most one short sentence plus one short follow-up question.',
+    );
+    expect(sessionUpdate?.session?.max_response_output_tokens).toBe(120);
   });
 
   it('uses the current realtime model in the websocket URL and keeps session.update minimal', () => {

@@ -27,6 +27,10 @@ export const envSchema = z.object({
     .string()
     .optional()
     .transform((value) => (value === undefined ? undefined : value === 'true')),
+  BOOTSTRAP_DEMO_TENANT: z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value === 'true')),
   STORE_MODE: z.enum(['memory', 'prisma']).default('memory'),
   QUEUE_MODE: z.enum(['memory', 'redis']).default('memory'),
   VOICE_FLOW_MODE: z.enum(['guided', 'realtime']).default('guided'),

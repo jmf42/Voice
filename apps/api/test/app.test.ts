@@ -28,6 +28,25 @@ describe('api', () => {
     const app = createApp({ store: new InMemoryStore() });
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      ok: true,
+      service: 'dispatchos-api',
+      persistence: { mode: 'memory', durable: false },
+      queue: { mode: 'memory', durable: false },
+    });
+  });
+
+  it('health check reports critical production-readiness issues without failing liveness', async () => {
+    const app = createApp({ store: new InMemoryStore() });
+    const res = await app.inject({ method: 'GET', url: '/health' });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      readiness: { productionSafe: boolean; issues: Array<{ code: string }> };
+    };
+    expect(body.readiness.productionSafe).toBe(false);
+    expect(body.readiness.issues.map((issue) => issue.code)).toContain('inmemory-store');
+    expect(body.readiness.issues.map((issue) => issue.code)).toContain('inmemory-queue');
   });
 
   it('rejects unknown tenants on inbound webhook', async () => {
@@ -89,8 +108,32 @@ describe('api', () => {
     expect(inbound.statusCode).toBe(200);
     expect(inbound.body).toContain('<ConversationRelay');
     expect(inbound.body).toContain('wss://api.example.com/v1/voice/realtime/demo-tenant');
+    expect(inbound.body).toContain('welcomeGreeting=');
+    expect(inbound.body).toContain('ttsProvider="Google"');
+    expect(inbound.body).toContain('voice="en-US-Journey-O"');
+    expect(inbound.body).toContain('interruptSensitivity="low"');
+    expect(inbound.body).toContain('reportInputDuringAgentSpeech="none"');
     expect(inbound.body).toContain('sig=');
     expect(inbound.body).toContain('ts=');
+  });
+
+  it('does not auto-bootstrap the demo tenant unless explicitly enabled', () => {
+    const previousBootstrap = process.env.BOOTSTRAP_DEMO_TENANT;
+    delete process.env.BOOTSTRAP_DEMO_TENANT;
+
+    const store = new InMemoryStore();
+    const createTenantSpy = vi.spyOn(store, 'createTenant');
+
+    const app = createApp({ store });
+
+    if (previousBootstrap === undefined) {
+      delete process.env.BOOTSTRAP_DEMO_TENANT;
+    } else {
+      process.env.BOOTSTRAP_DEMO_TENANT = previousBootstrap;
+    }
+
+    expect(app).toBeTruthy();
+    expect(createTenantSpy).not.toHaveBeenCalled();
   });
 
   it('handles realtime websocket conversation and creates a job', async () => {
@@ -125,6 +168,7 @@ describe('api', () => {
       const match = inbound.body.match(/url="([^"]+)"/);
       expect(match?.[1]).toBeTruthy();
       const url = (match?.[1] ?? '').replaceAll('&amp;', '&');
+      const realtimeReplies: Array<{ token: string; lang?: string; last: boolean }> = [];
 
       await new Promise<void>((resolve, reject) => {
         const ws = new WebSocket(url);
@@ -148,6 +192,22 @@ describe('api', () => {
         ws.on('error', (error) => {
           clearTimeout(timeout);
           reject(error);
+        });
+
+        ws.on('message', (raw) => {
+          const payload = JSON.parse(raw.toString()) as {
+            type?: string;
+            token?: string;
+            lang?: string;
+            last?: boolean;
+          };
+          if (payload.type === 'text') {
+            realtimeReplies.push({
+              token: payload.token ?? '',
+              lang: payload.lang,
+              last: Boolean(payload.last),
+            });
+          }
         });
 
         ws.on('close', () => {
@@ -218,6 +278,7 @@ describe('api', () => {
       const match = inbound.body.match(/url="([^"]+)"/);
       expect(match?.[1]).toBeTruthy();
       const url = (match?.[1] ?? '').replaceAll('&amp;', '&');
+      const realtimeReplies: Array<{ token: string; lang?: string; last: boolean }> = [];
 
       await new Promise<void>((resolve, reject) => {
         const ws = new WebSocket(url);
@@ -235,6 +296,22 @@ describe('api', () => {
         ws.on('error', (error) => {
           clearTimeout(timeout);
           reject(error);
+        });
+
+        ws.on('message', (raw) => {
+          const payload = JSON.parse(raw.toString()) as {
+            type?: string;
+            token?: string;
+            lang?: string;
+            last?: boolean;
+          };
+          if (payload.type === 'text') {
+            realtimeReplies.push({
+              token: payload.token ?? '',
+              lang: payload.lang,
+              last: Boolean(payload.last),
+            });
+          }
         });
 
         ws.on('close', () => {
@@ -650,6 +727,7 @@ describe('api', () => {
       const match = inbound.body.match(/url="([^"]+)"/);
       expect(match?.[1]).toBeTruthy();
       const url = (match?.[1] ?? '').replaceAll('&amp;', '&');
+      const realtimeReplies: Array<{ token: string; lang?: string; last: boolean }> = [];
 
       await new Promise<void>((resolve, reject) => {
         const ws = new WebSocket(url);
@@ -698,6 +776,22 @@ describe('api', () => {
           reject(error);
         });
 
+        ws.on('message', (raw) => {
+          const payload = JSON.parse(raw.toString()) as {
+            type?: string;
+            token?: string;
+            lang?: string;
+            last?: boolean;
+          };
+          if (payload.type === 'text') {
+            realtimeReplies.push({
+              token: payload.token ?? '',
+              lang: payload.lang,
+              last: Boolean(payload.last),
+            });
+          }
+        });
+
         ws.on('close', () => {
           clearTimeout(timeout);
           resolve();
@@ -722,6 +816,7 @@ describe('api', () => {
       expect(items[0]?.job_summary.toLowerCase()).not.toContain("company's name");
       expect(items[0]?.booking_status).toBe('booked');
       expect(items[0]?.confirmed_slot_start).toBe('2026-03-08T20:00:00.000Z');
+      expect(realtimeReplies.some((reply) => reply.lang === 'en-US')).toBe(true);
     } finally {
       await app.close();
       if (prevMode === undefined) {

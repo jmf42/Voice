@@ -17,7 +17,7 @@ import {
   type TimeWindow,
 } from '@dispatchos/shared';
 import { parseEnv } from '@dispatchos/config';
-import { requireAuth, type AuthContext } from './auth.js';
+import { allowDevAuthToken, requireAuth, type AuthContext } from './auth.js';
 import { BullQueueClient, InMemoryQueueClient, type QueueClient } from './queue.js';
 import { InMemoryStore, type Store } from './store.js';
 import { PrismaStore } from './store-prisma.js';
@@ -58,8 +58,16 @@ const realtimeSocketQuerySchema = z.object({
 });
 const realtimeInboundMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('setup') }),
-  z.object({ type: z.literal('prompt'), voicePrompt: z.string().min(1).max(4000) }),
-  z.object({ type: z.literal('interrupt'), utteranceUntilInterrupt: z.string().min(1).max(4000) }),
+  z.object({
+    type: z.literal('prompt'),
+    voicePrompt: z.string().min(1).max(4000),
+    lang: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('interrupt'),
+    utteranceUntilInterrupt: z.string().min(1).max(4000),
+    lang: z.string().optional(),
+  }),
 ]);
 const REALTIME_SOCKET_TTL_MS = 15 * 60 * 1000;
 const REALTIME_MAX_TURNS = 120;
@@ -284,6 +292,126 @@ function isValidRealtimeSocketSig(args: {
   return timingSafeEqual(expectedBuffer, givenBuffer);
 }
 
+interface ReadinessIssue {
+  code: string;
+  severity: 'critical' | 'warning';
+  message: string;
+}
+
+function buildHealthSnapshot(args: {
+  env: ReturnType<typeof parseEnv>;
+  persistence: { mode: 'memory' | 'database'; durable: boolean };
+  usingInMemoryQueue: boolean;
+  runningInManagedRuntime: boolean;
+  devAuthEnabled: boolean;
+  demoTenantBootstrapEnabled: boolean;
+  openAiConfigured: boolean;
+  twilioVoiceConfigured: boolean;
+  smsConfigured: boolean;
+  calendarConfigured: boolean;
+}) {
+  const issues: ReadinessIssue[] = [];
+
+  if (!args.persistence.durable) {
+    issues.push({
+      code: 'inmemory-store',
+      severity: 'critical',
+      message: 'Settings and job data are not durable because the app is using in-memory storage.',
+    });
+  }
+
+  if (args.usingInMemoryQueue) {
+    issues.push({
+      code: 'inmemory-queue',
+      severity: 'critical',
+      message: 'Retry jobs are not durable because the worker queue is using in-memory mode.',
+    });
+  }
+
+  if (args.runningInManagedRuntime && args.env.NODE_ENV !== 'production') {
+    issues.push({
+      code: 'managed-runtime-nonprod',
+      severity: 'critical',
+      message: 'The service is running in a managed runtime without NODE_ENV=production.',
+    });
+  }
+
+  if (args.env.NODE_ENV === 'production' && args.devAuthEnabled) {
+    issues.push({
+      code: 'dev-auth-enabled',
+      severity: 'critical',
+      message: 'Production still accepts developer bearer tokens. Turn off ALLOW_DEV_AUTH_TOKEN.',
+    });
+  }
+
+  if (args.env.NODE_ENV === 'production' && args.demoTenantBootstrapEnabled) {
+    issues.push({
+      code: 'demo-bootstrap-enabled',
+      severity: 'critical',
+      message: 'Production is configured to auto-create the demo tenant. Disable BOOTSTRAP_DEMO_TENANT.',
+    });
+  }
+
+  if (args.env.VOICE_FLOW_MODE === 'realtime' && !args.openAiConfigured) {
+    issues.push({
+      code: 'realtime-without-openai',
+      severity: 'warning',
+      message: 'Realtime voice mode is enabled but OPENAI_API_KEY is missing, so the assistant will fall back to generic replies.',
+    });
+  }
+
+  if (!args.twilioVoiceConfigured) {
+    issues.push({
+      code: 'twilio-voice-simulated',
+      severity: 'warning',
+      message: 'Twilio voice credentials are missing or test-only, so live phone actions are not fully enabled.',
+    });
+  }
+
+  if (!args.smsConfigured) {
+    issues.push({
+      code: 'sms-simulated',
+      severity: 'warning',
+      message: 'SMS confirmations are running in simulated mode because live Twilio messaging credentials are not configured.',
+    });
+  }
+
+  if (!args.calendarConfigured) {
+    issues.push({
+      code: 'calendar-not-configured',
+      severity: 'warning',
+      message: 'Google Calendar OAuth is not configured, so live calendar sync is unavailable.',
+    });
+  }
+
+  return {
+    productionSafe: !issues.some((issue) => issue.severity === 'critical'),
+    issues,
+    runtime: {
+      nodeEnv: args.env.NODE_ENV,
+      managedRuntime: args.runningInManagedRuntime,
+      voiceFlowMode: args.env.VOICE_FLOW_MODE,
+      realtimeModel: args.env.REALTIME_AGENT_MODEL,
+      demoTenantBootstrap: args.demoTenantBootstrapEnabled,
+    },
+    persistence: args.persistence,
+    queue: {
+      mode: args.usingInMemoryQueue ? 'memory' : 'redis',
+      durable: !args.usingInMemoryQueue,
+    },
+    auth: {
+      devBearerEnabled: args.devAuthEnabled,
+      firebaseAdminConfigured: Boolean(process.env.FIREBASE_PROJECT_ID),
+    },
+    providers: {
+      openai: args.openAiConfigured,
+      twilioVoice: args.twilioVoiceConfigured,
+      sms: args.smsConfigured,
+      calendar: args.calendarConfigured,
+    },
+  } as const;
+}
+
 export function createApp(deps?: {
   store?: Store;
   classifier?: ClassificationService;
@@ -334,6 +462,7 @@ export function createApp(deps?: {
     CORS_ORIGINS: process.env.CORS_ORIGINS,
     ALLOW_DEV_AUTH_TOKEN: process.env.ALLOW_DEV_AUTH_TOKEN,
     ALLOW_INMEMORY_STORE: process.env.ALLOW_INMEMORY_STORE,
+    BOOTSTRAP_DEMO_TENANT: process.env.BOOTSTRAP_DEMO_TENANT,
     STORE_MODE: process.env.STORE_MODE,
     QUEUE_MODE: process.env.QUEUE_MODE,
     VOICE_FLOW_MODE: process.env.VOICE_FLOW_MODE,
@@ -411,16 +540,19 @@ export function createApp(deps?: {
   });
 
   const store: Store = deps?.store ?? (useInMemoryStore ? new InMemoryStore() : new PrismaStore());
-  void store
-    .createTenant({
-      tenantId: 'demo-tenant',
-      businessName: 'DispatchOS Demo Heating',
-      businessPhone: '+41225550999',
-      escalationPhone: '+41225550123',
-    })
-    .catch((error) => {
-      app.log.error({ err: error }, 'failed to bootstrap default tenant');
-    });
+  const demoTenantBootstrapEnabled = env.BOOTSTRAP_DEMO_TENANT === true;
+  if (demoTenantBootstrapEnabled) {
+    void store
+      .createTenant({
+        tenantId: 'demo-tenant',
+        businessName: 'DispatchOS Demo Heating',
+        businessPhone: '+41225550999',
+        escalationPhone: '+41225550123',
+      })
+      .catch((error) => {
+        app.log.error({ err: error }, 'failed to bootstrap default tenant');
+      });
+  }
   const classifier =
     deps?.classifier ?? new ClassificationService(env.OPENAI_API_KEY, env.OPENAI_MODEL);
   const realtimeConversation = new RealtimeConversationService(
@@ -450,6 +582,26 @@ export function createApp(deps?: {
     env.TWILIO_ACCOUNT_SID.startsWith('AC_TEST') || env.TWILIO_AUTH_TOKEN === 'token'
       ? null
       : twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+  const smsConfigured =
+    typeof smsService.isLiveProviderEnabled === 'function'
+      ? smsService.isLiveProviderEnabled()
+      : Boolean(deps?.sms);
+  const calendarConfigured =
+    typeof calendarService.isLiveProviderEnabled === 'function'
+      ? calendarService.isLiveProviderEnabled()
+      : Boolean(deps?.calendar);
+  const healthSnapshot = buildHealthSnapshot({
+    env,
+    persistence,
+    usingInMemoryQueue: useInMemoryQueue,
+    runningInManagedRuntime,
+    devAuthEnabled: allowDevAuthToken(),
+    demoTenantBootstrapEnabled,
+    openAiConfigured: Boolean(env.OPENAI_API_KEY),
+    twilioVoiceConfigured: Boolean(twilioVoiceClient),
+    smsConfigured,
+    calendarConfigured,
+  });
 
   const oauthStates = new Map<string, { tenantId: string; createdAt: number }>();
   const realtimeTranscriptByCallSid = new Map<string, RealtimeTurn[]>();
@@ -987,10 +1139,23 @@ export function createApp(deps?: {
     service: 'dispatchos-api',
     ok: true,
     health: '/health',
+    readiness: '/health',
     docs: '/README.md',
   }));
 
-  app.get('/health', async () => ({ ok: true }));
+  app.get('/health', async () => ({
+    ok: true,
+    service: 'dispatchos-api',
+    readiness: {
+      productionSafe: healthSnapshot.productionSafe,
+      issues: healthSnapshot.issues,
+    },
+    runtime: healthSnapshot.runtime,
+    persistence: healthSnapshot.persistence,
+    queue: healthSnapshot.queue,
+    auth: healthSnapshot.auth,
+    providers: healthSnapshot.providers,
+  }));
 
   app.register(async function registerRealtimeRoutes(realtimeApp) {
     realtimeApp.get(
@@ -1097,6 +1262,26 @@ export function createApp(deps?: {
         let startedGreeting = false;
         let transferRequested = false;
         const knowledgeInstruction = buildKnowledgeInstruction(settings);
+        const supportedRealtimeLanguages = settings.languages.length
+          ? [...new Set(settings.languages)]
+          : (['en'] as Array<'fr' | 'en'>);
+        const defaultRealtimeLanguage = supportedRealtimeLanguages.includes('en') ? 'en' : 'fr';
+        let currentSpeechLang: 'en-US' | 'fr-FR' =
+          defaultRealtimeLanguage === 'fr' ? 'fr-FR' : 'en-US';
+        const sendRealtimeText = (
+          token: string,
+          last: boolean,
+          lang: 'en-US' | 'fr-FR' = currentSpeechLang,
+        ): void => {
+          socket.send(
+            JSON.stringify({
+              type: 'text',
+              token,
+              last,
+              lang,
+            }),
+          );
+        };
         const realtimeSession = realtimeConversation.createSession({
           businessName: settings.business_name,
           knowledgeInstruction,
@@ -1105,24 +1290,21 @@ export function createApp(deps?: {
           languages: settings.languages,
           onTextDelta: (token) => {
             assistantBuffer += token;
-            socket.send(JSON.stringify({ type: 'text', token, last: false }));
+            sendRealtimeText(token, false);
           },
           onTextDone: () => {
             if (assistantBuffer.trim()) {
               addRealtimeTurn(callSid, { role: 'assistant', text: assistantBuffer.trim() });
             }
             assistantBuffer = '';
-            socket.send(JSON.stringify({ type: 'text', token: '', last: true }));
+            sendRealtimeText('', true);
           },
           onError: (message) => {
             app.log.warn({ callSid, message }, 'realtime session warning');
-            socket.send(
-              JSON.stringify({
-                type: 'text',
-                token: 'Sorry, I had a network issue. Please repeat that.',
-                last: true,
-              }),
-            );
+            if (/Cancellation failed: no active response found/i.test(message)) {
+              return;
+            }
+            sendRealtimeText('Sorry, I had trouble hearing that. Please repeat that.', true);
           },
         });
 
@@ -1159,6 +1341,13 @@ export function createApp(deps?: {
 
             if (payload.type === 'prompt') {
               const userText = String(payload.voicePrompt);
+              const detectedLanguage = payload.lang?.toLowerCase().startsWith('fr')
+                ? 'fr'
+                : await classifier.detectLanguage(userText || 'hello');
+              currentSpeechLang =
+                detectedLanguage === 'fr' && supportedRealtimeLanguages.includes('fr')
+                  ? 'fr-FR'
+                  : 'en-US';
               const transcript = addRealtimeTurn(callSid, { role: 'user', text: userText });
               const intakeState = await captureRealtimeUserTurn(callSid, userText);
 
@@ -1172,13 +1361,7 @@ export function createApp(deps?: {
                     await twilioVoiceClient.calls(call.twilioCallSid).update({
                       twiml: twimlTransfer(settings.escalation_phone, transferPath),
                     });
-                    socket.send(
-                      JSON.stringify({
-                        type: 'text',
-                        token: 'Understood. Transferring you to the on-call team now.',
-                        last: true,
-                      }),
-                    );
+                    sendRealtimeText('Understood. Transferring you to the on-call team now.', true);
                     socket.close();
                     return;
                   } catch (error) {
@@ -1198,22 +1381,20 @@ export function createApp(deps?: {
                   settings,
                   forceUrgent: true,
                 });
-                socket.send(
-                  JSON.stringify({
-                    type: 'text',
-                    token: `Urgent request captured. We will call within ${settings.callback_sla_minutes} minutes.`,
-                    last: true,
-                  }),
+                sendRealtimeText(
+                  `Urgent request captured. We will call within ${settings.callback_sla_minutes} minutes.`,
+                  true,
                 );
                 socket.close();
                 return;
               }
 
               const missingQuestion = nextMissingRealtimeQuestion(intakeState);
-              const answerOnly =
-                isBusinessQuestion(userText) && !intakeState.issueText && !intakeState.addressRaw;
-              const responseInstruction = answerOnly
-                ? 'Caller intent: this is a business-information question. Answer it directly from the saved business context. Do not ask for dispatch details until the caller clearly asks for service help.'
+              const businessQuestion = isBusinessQuestion(userText);
+              const responseInstruction = businessQuestion
+                ? missingQuestion
+                  ? `Caller intent: this is a business-information question. Answer it directly from the saved business context first. Then ask exactly one short follow-up question to continue intake: ${missingQuestion}`
+                  : 'Caller intent: this is a business-information question. Answer it directly from the saved business context in one short sentence. Do not invent policies.'
                 : missingQuestion
                   ? `Intake progress: ask this next to complete dispatch details -> ${missingQuestion}`
                   : 'Intake progress: issue, address, preferred time, and callback number are captured. Briefly confirm and close unless the caller asks for something else.';
@@ -1238,15 +1419,20 @@ export function createApp(deps?: {
                 callbackSlaMinutes: settings.callback_sla_minutes,
                 languages: settings.languages,
                 transcript,
-                userText: `${userText}\n\nAssistant instruction: ${responseInstruction}`,
+                userText,
+                responseInstruction,
               });
               addRealtimeTurn(callSid, { role: 'assistant', text: answer });
-              socket.send(JSON.stringify({ type: 'text', token: answer, last: true }));
+              sendRealtimeText(answer, true);
               return;
             }
 
             if (payload.type === 'interrupt') {
               const interruptText = String(payload.utteranceUntilInterrupt);
+              currentSpeechLang =
+                payload.lang?.toLowerCase().startsWith('fr') && supportedRealtimeLanguages.includes('fr')
+                  ? 'fr-FR'
+                  : currentSpeechLang;
               addRealtimeTurn(callSid, { role: 'user', text: interruptText });
               await captureRealtimeUserTurn(callSid, interruptText);
               realtimeSession?.cancelResponse();
@@ -1258,20 +1444,6 @@ export function createApp(deps?: {
                 return;
               }
               startedGreeting = true;
-              const introQuestion =
-                'Greet the caller naturally in one short sentence, identify yourself as the live service assistant, and ask what service issue they need help with right now.';
-
-              if (realtimeSession) {
-                const accepted = realtimeSession.startAssistantResponse(introQuestion);
-                if (accepted) {
-                  return;
-                }
-              }
-
-              const fallbackGreeting =
-                "Thanks for calling. I'm the live service assistant. What do you need help with today?";
-              addRealtimeTurn(callSid, { role: 'assistant', text: fallbackGreeting });
-              socket.send(JSON.stringify({ type: 'text', token: fallbackGreeting, last: true }));
               return;
             }
           } catch (error) {
@@ -1356,6 +1528,11 @@ export function createApp(deps?: {
       return reply.send(
         twimlConversationRelay({
           websocketUrl: wsUrl,
+          welcomeGreeting: `Thanks for calling ${settings.business_name}. I'm the live service assistant. What do you need help with today?`,
+          defaultLanguage: settings.languages.includes('en') ? 'en' : 'fr',
+          supportedLanguages: settings.languages.length
+            ? settings.languages
+            : (['en'] as Array<'fr' | 'en'>),
         }),
       );
     }

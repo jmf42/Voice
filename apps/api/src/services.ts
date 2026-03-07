@@ -12,7 +12,7 @@ import OpenAI from 'openai';
 import twilio from 'twilio';
 import WebSocket from 'ws';
 import type { CalendarConnection, CallRecord, JobRecord, TenantSettingsRecord } from './types.js';
-import { inferTimeWindowFromText } from './realtime-intake.js';
+import { inferTimeWindowFromText, shouldCaptureIssueText } from './realtime-intake.js';
 
 function compactText(value?: string): string {
   return value?.trim().replace(/\s+/g, ' ') ?? '';
@@ -104,6 +104,28 @@ function inferServiceHint(
   }
 
   return bestMatch?.score ? bestMatch.name : undefined;
+}
+
+function extractJobSummarySource(call: CallRecord): string {
+  const prioritized: string[] = [];
+  const transcriptIssues = call.transcript
+    .map((line) => line.replace(/^\[[^\]]+\]\s*/, '').trim())
+    .filter(Boolean)
+    .filter((line) => shouldCaptureIssueText(line));
+
+  if (compactText(call.issueText)) {
+    prioritized.push(compactText(call.issueText));
+  }
+
+  prioritized.push(...transcriptIssues);
+  const merged = prioritized.filter(Boolean).join(' ').trim();
+  if (merged) return merged;
+
+  return call.transcript
+    .map((line) => line.replace(/^\[[^\]]+\]\s*/, '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim();
 }
 
 export class ClassificationService {
@@ -214,7 +236,9 @@ export class RealtimeConversationService {
       `Supported language: ${languageHint}.`,
       languageRule,
       'Keep responses concise and natural for live phone calls.',
+      'Use at most one short sentence plus one short follow-up question.',
       'Ask one follow-up question when information is missing.',
+      'Do not repeat details the caller already confirmed unless you are correcting a conflict.',
       `For urgent non-life-safety issues, promise callback in ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
       'For life-safety risk, instruct caller to contact emergency services immediately.',
       'If asked a business-specific question, answer from business context first. If context is missing, say you will pass to the team.',
@@ -270,7 +294,7 @@ export class RealtimeConversationService {
           session: {
             modalities: ['text'],
             instructions,
-            max_response_output_tokens: 180,
+            max_response_output_tokens: 120,
           },
         }),
       );
@@ -388,6 +412,7 @@ export class RealtimeConversationService {
     languages: Array<'fr' | 'en'>;
     transcript: Array<{ role: 'user' | 'assistant'; text: string }>;
     userText: string;
+    responseInstruction?: string;
   }): Promise<string> {
     if (!this.client) {
       return 'Thanks, I understood your request. I can help you with issue details, address, timing, and urgent escalation if needed.';
@@ -422,11 +447,16 @@ export class RealtimeConversationService {
                 `Supported language: ${languageHint}.`,
                 languageRule,
                 `Keep responses concise (max 2 short sentences).`,
+                'Use at most one short answer and one short follow-up question.',
+                'Do not repeat details the caller already confirmed unless you need to correct a conflict.',
                 'If life-safety risk (gas leak, fire, flooding, injury), tell the caller to contact emergency services immediately.',
                 `If urgent but non-life-safety, promise callback within ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
                 'If the caller asks only a business-information question, answer it directly and do not begin intake yet.',
                 'Once the caller clearly asks for service help, ask exactly one follow-up question when key details are missing (issue, address, preferred time window, callback number).',
                 'If caller asks business-specific questions, answer from business context first; if unknown, route to team.',
+                args.responseInstruction
+                  ? `Current turn guidance: ${args.responseInstruction}.`
+                  : '',
               ].join(' '),
             },
           ],
@@ -823,19 +853,33 @@ export function twimlTransfer(number: string, actionPath: string): string {
 export function twimlConversationRelay(args: {
   websocketUrl: string;
   welcomeGreeting?: string;
+  defaultLanguage: 'en' | 'fr';
+  supportedLanguages: Array<'en' | 'fr'>;
 }): string {
   const response = new twilio.twiml.VoiceResponse();
   const connect = response.connect();
   const relayOptions: Record<string, string | boolean> = {
     url: args.websocketUrl,
-    interruptible: 'any',
-    preemptible: true,
-    reportInputDuringAgentSpeech: true,
+    language: args.defaultLanguage === 'fr' ? 'fr-FR' : 'en-US',
+    ttsProvider: 'Google',
+    voice: args.defaultLanguage === 'fr' ? 'fr-FR-Neural2-B' : 'en-US-Journey-O',
+    interruptible: 'speech',
+    interruptSensitivity: 'low',
+    preemptible: false,
+    reportInputDuringAgentSpeech: 'none',
+    welcomeGreetingInterruptible: 'none',
   };
   if (args.welcomeGreeting) {
     relayOptions.welcomeGreeting = args.welcomeGreeting;
   }
-  connect.conversationRelay(relayOptions);
+  const relay = connect.conversationRelay(relayOptions);
+  for (const language of [...new Set(args.supportedLanguages)]) {
+    relay.language({
+      code: language === 'fr' ? 'fr-FR' : 'en-US',
+      ttsProvider: 'Google',
+      voice: language === 'fr' ? 'fr-FR-Neural2-B' : 'en-US-Journey-O',
+    });
+  }
   return responseAsXml(response);
 }
 
@@ -865,7 +909,7 @@ export async function buildQualifiedJobDraft(args: {
   settings: TenantSettingsRecord;
   classifier: ClassificationService;
 }): Promise<Record<string, unknown>> {
-  const sourceText = [args.call.issueText, ...args.call.transcript].filter(Boolean).join(' ');
+  const sourceText = extractJobSummarySource(args.call);
   const summary = await args.classifier.summarizeIssue(
     sourceText || 'Customer called for plumbing/heating service.',
   );
