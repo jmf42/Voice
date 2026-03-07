@@ -1212,21 +1212,20 @@ export function createApp(deps?: {
               const missingQuestion = nextMissingRealtimeQuestion(intakeState);
               const answerOnly =
                 isBusinessQuestion(userText) && !intakeState.issueText && !intakeState.addressRaw;
-              const progressHint = answerOnly
-                ? '\n\nCaller intent: this is a business-information question. Answer it directly from the saved business context. Do not ask for dispatch details until the caller clearly asks for service help.'
+              const responseInstruction = answerOnly
+                ? 'Caller intent: this is a business-information question. Answer it directly from the saved business context. Do not ask for dispatch details until the caller clearly asks for service help.'
                 : missingQuestion
-                  ? `\n\nIntake progress: ask this next to complete dispatch details -> ${missingQuestion}`
-                  : '\n\nIntake progress: issue, address, preferred time, and callback number are captured.';
-              const guidedUserTurn = `${userText}${progressHint}`;
+                  ? `Intake progress: ask this next to complete dispatch details -> ${missingQuestion}`
+                  : 'Intake progress: issue, address, preferred time, and callback number are captured. Briefly confirm and close unless the caller asks for something else.';
 
               if (realtimeSession) {
                 if (realtimeSession.isConnected()) {
-                  const accepted = realtimeSession.sendUserTurn(guidedUserTurn);
+                  const accepted = realtimeSession.sendUserTurn(userText, responseInstruction);
                   if (accepted) return;
                 } else {
                   await new Promise((resolve) => setTimeout(resolve, 250));
                   if (realtimeSession.isConnected()) {
-                    const accepted = realtimeSession.sendUserTurn(guidedUserTurn);
+                    const accepted = realtimeSession.sendUserTurn(userText, responseInstruction);
                     if (accepted) return;
                   }
                 }
@@ -1239,7 +1238,7 @@ export function createApp(deps?: {
                 callbackSlaMinutes: settings.callback_sla_minutes,
                 languages: settings.languages,
                 transcript,
-                userText: guidedUserTurn,
+                userText: `${userText}\n\nAssistant instruction: ${responseInstruction}`,
               });
               addRealtimeTurn(callSid, { role: 'assistant', text: answer });
               socket.send(JSON.stringify({ type: 'text', token: answer, last: true }));

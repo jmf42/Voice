@@ -190,7 +190,7 @@ export class RealtimeConversationService {
     onError: (message: string) => void;
   }): {
     isConnected: () => boolean;
-    sendUserTurn: (text: string) => boolean;
+    sendUserTurn: (text: string, instructions?: string) => boolean;
     startAssistantResponse: (instructions?: string) => boolean;
     cancelResponse: () => void;
     close: () => void;
@@ -202,10 +202,17 @@ export class RealtimeConversationService {
       args.languages.includes('fr') && args.languages.includes('en')
         ? 'French or English'
         : args.languages[0];
+    const languageRule =
+      args.languages.includes('fr') && args.languages.includes('en')
+        ? 'You may respond only in English or French. Use French only if the caller is clearly speaking French. Otherwise use English. Never switch to Spanish or any other language.'
+        : args.languages.includes('fr')
+          ? 'Respond only in French. Never switch to English, Spanish, or any other language unless an operator changes the business settings.'
+          : 'Respond only in English. Never switch to French, Spanish, or any other language unless an operator changes the business settings.';
     const instructions = [
       `You are the phone intake assistant for ${args.businessName}.`,
       args.knowledgeInstruction || 'No extra business policy context was provided.',
       `Supported language: ${languageHint}.`,
+      languageRule,
       'Keep responses concise and natural for live phone calls.',
       'Ask one follow-up question when information is missing.',
       `For urgent non-life-safety issues, promise callback in ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
@@ -224,7 +231,7 @@ export class RealtimeConversationService {
     let connected = false;
     let failed = false;
     const queuedActions: Array<
-      { type: 'turn'; text: string } | { type: 'response'; instructions?: string }
+      { type: 'turn'; text: string; instructions?: string } | { type: 'response'; instructions?: string }
     > = [];
     let responseActive = false;
     let sawDeltaForActiveResponse = false;
@@ -240,7 +247,7 @@ export class RealtimeConversationService {
       );
     };
 
-    const sendTurn = (text: string): void => {
+    const sendTurn = (text: string, instructions?: string): void => {
       ws.send(
         JSON.stringify({
           type: 'conversation.item.create',
@@ -251,7 +258,7 @@ export class RealtimeConversationService {
           },
         }),
       );
-      triggerResponse();
+      triggerResponse(instructions);
     };
 
     ws.on('open', () => {
@@ -269,7 +276,7 @@ export class RealtimeConversationService {
       );
       for (const action of queuedActions.splice(0)) {
         if (action.type === 'turn') {
-          sendTurn(action.text);
+          sendTurn(action.text, action.instructions);
           continue;
         }
         triggerResponse(action.instructions);
@@ -334,15 +341,15 @@ export class RealtimeConversationService {
 
     return {
       isConnected: () => connected && ws.readyState === WebSocket.OPEN,
-      sendUserTurn: (text: string) => {
+      sendUserTurn: (text: string, instructions?: string) => {
         if (failed || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
           return false;
         }
         if (ws.readyState !== WebSocket.OPEN) {
-          queuedActions.push({ type: 'turn', text });
+          queuedActions.push({ type: 'turn', text, instructions });
           return true;
         }
-        sendTurn(text);
+        sendTurn(text, instructions);
         return true;
       },
       startAssistantResponse: (instructions?: string) => {
@@ -394,6 +401,12 @@ export class RealtimeConversationService {
       args.languages.includes('fr') && args.languages.includes('en')
         ? 'French or English'
         : args.languages[0];
+    const languageRule =
+      args.languages.includes('fr') && args.languages.includes('en')
+        ? 'You may respond only in English or French. Use French only if the caller is clearly speaking French. Otherwise use English. Never reply in Spanish or any other language.'
+        : args.languages.includes('fr')
+          ? 'Respond only in French. Never reply in English, Spanish, or any other language.'
+          : 'Respond only in English. Never reply in French, Spanish, or any other language.';
 
     const response = await this.client.responses.create({
       model: this.fallbackModel,
@@ -407,6 +420,7 @@ export class RealtimeConversationService {
                 `You are the phone intake assistant for ${args.businessName}.`,
                 args.knowledgeInstruction || 'No extra business policy context was provided.',
                 `Supported language: ${languageHint}.`,
+                languageRule,
                 `Keep responses concise (max 2 short sentences).`,
                 'If life-safety risk (gas leak, fire, flooding, injury), tell the caller to contact emergency services immediately.',
                 `If urgent but non-life-safety, promise callback within ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,

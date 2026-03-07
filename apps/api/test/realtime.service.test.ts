@@ -68,18 +68,28 @@ describe('RealtimeConversationService', () => {
       throw new Error('mock websocket missing');
     }
 
-    session?.sendUserTurn('Need help with heating leak');
+    session?.sendUserTurn(
+      'Need help with heating leak',
+      'Ask for the full service address next and stay in English.',
+    );
     expect(ws.sent).toHaveLength(0);
 
     ws.open();
     const sentPayloads = ws.sent.map(
       (entry) =>
-        JSON.parse(entry) as { type: string; item?: { content?: Array<{ text: string }> } },
+        JSON.parse(entry) as {
+          type: string;
+          item?: { content?: Array<{ text: string }> };
+          response?: { instructions?: string };
+        },
     );
     expect(sentPayloads.some((entry) => entry.type === 'session.update')).toBe(true);
     const userTurnPayload = sentPayloads.find((entry) => entry.type === 'conversation.item.create');
     expect(userTurnPayload?.item?.content?.[0]?.text).toBe('Need help with heating leak');
-    expect(sentPayloads.some((entry) => entry.type === 'response.create')).toBe(true);
+    const responseCreate = sentPayloads.find((entry) => entry.type === 'response.create');
+    expect(responseCreate?.response?.instructions).toBe(
+      'Ask for the full service address next and stay in English.',
+    );
     expect(doneCount).toBe(0);
   });
 
@@ -112,6 +122,9 @@ describe('RealtimeConversationService', () => {
 
     expect(sessionUpdate?.session?.instructions).toContain(
       'Business context and policies you must use when answering: Weekend emergency surcharge is CHF 90. Service area is central Geneva only. Known services: Boiler Repair. FAQ answers: Do you work weekends? -> Yes, for emergencies.',
+    );
+    expect(sessionUpdate?.session?.instructions).toContain(
+      'Never switch to French, Spanish, or any other language',
     );
   });
 
