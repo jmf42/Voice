@@ -12,6 +12,7 @@ import OpenAI from 'openai';
 import twilio from 'twilio';
 import WebSocket from 'ws';
 import type { CalendarConnection, CallRecord, JobRecord, TenantSettingsRecord } from './types.js';
+import { inferTimeWindowFromText } from './realtime-intake.js';
 
 function compactText(value?: string): string {
   return value?.trim().replace(/\s+/g, ' ') ?? '';
@@ -154,11 +155,7 @@ export class ClassificationService {
   }
 
   inferTimeWindow(text: string): TimeWindow {
-    const normalized = text.toLowerCase();
-    if (normalized.includes('morning') || normalized.includes('matin')) return 'morning';
-    if (normalized.includes('afternoon') || normalized.includes('apres-midi')) return 'afternoon';
-    if (normalized.includes('evening') || normalized.includes('soir')) return 'evening';
-    return 'specific';
+    return inferTimeWindowFromText(text) ?? 'specific';
   }
 
   extractPhone(text: string): string {
@@ -173,11 +170,7 @@ export class RealtimeConversationService {
   private fallbackModel: string;
   private apiKey?: string;
 
-  constructor(
-    apiKey?: string,
-    realtimeModel = 'gpt-realtime-mini',
-    fallbackModel = 'gpt-4.1-mini',
-  ) {
+  constructor(apiKey?: string, realtimeModel = 'gpt-realtime-1.5', fallbackModel = 'gpt-4.1-mini') {
     this.apiKey = apiKey;
     this.realtimeModel = realtimeModel;
     this.fallbackModel = fallbackModel;
@@ -218,6 +211,7 @@ export class RealtimeConversationService {
       `For urgent non-life-safety issues, promise callback in ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
       'For life-safety risk, instruct caller to contact emergency services immediately.',
       'If asked a business-specific question, answer from business context first. If context is missing, say you will pass to the team.',
+      'Do not start dispatch intake unless the caller clearly asks for service help right now.',
     ].join(' ');
 
     const ws = new WebSocket(url, {
@@ -267,6 +261,8 @@ export class RealtimeConversationService {
         JSON.stringify({
           type: 'session.update',
           session: {
+            type: 'realtime',
+            model: this.realtimeModel,
             modalities: ['text'],
             instructions,
             max_response_output_tokens: 180,
@@ -416,7 +412,8 @@ export class RealtimeConversationService {
                 `Keep responses concise (max 2 short sentences).`,
                 'If life-safety risk (gas leak, fire, flooding, injury), tell the caller to contact emergency services immediately.',
                 `If urgent but non-life-safety, promise callback within ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
-                'Always ask exactly one follow-up question when key details are missing (issue, address, preferred time window, callback number).',
+                'If the caller asks only a business-information question, answer it directly and do not begin intake yet.',
+                'Once the caller clearly asks for service help, ask exactly one follow-up question when key details are missing (issue, address, preferred time window, callback number).',
                 'If caller asks business-specific questions, answer from business context first; if unknown, route to team.',
               ].join(' '),
             },
@@ -701,6 +698,40 @@ export class CalendarService {
     });
 
     return available.slice(0, count);
+  }
+
+  async isSlotAvailable(args: {
+    connection: CalendarConnection;
+    slotStart: string;
+    slotEnd: string;
+  }): Promise<boolean> {
+    if (!this.oauthClient) return true;
+
+    this.oauthClient.setCredentials({
+      refresh_token: args.connection.refreshToken,
+      access_token: args.connection.accessToken,
+    });
+
+    const calendarApi = google.calendar({ version: 'v3', auth: this.oauthClient });
+    const calendarId = await this.ensureCalendar(args.connection);
+    const events = await calendarApi.events.list({
+      calendarId,
+      timeMin: args.slotStart,
+      timeMax: args.slotEnd,
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 20,
+    });
+
+    const start = new Date(args.slotStart).getTime();
+    const end = new Date(args.slotEnd).getTime();
+
+    return !(events.data.items ?? []).some((event) => {
+      const eventStart = event.start?.dateTime;
+      const eventEnd = event.end?.dateTime;
+      if (!eventStart || !eventEnd) return false;
+      return start < new Date(eventEnd).getTime() && end > new Date(eventStart).getTime();
+    });
   }
 
   async createOrUpdateBooking(args: {

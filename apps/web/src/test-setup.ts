@@ -15,5 +15,6 @@ class MockIntersectionObserver {
 vi.stubGlobal('IntersectionObserver', MockIntersectionObserver as unknown as typeof IntersectionObserver);
 
 vi.mock('./components/CyberBackground3D.js', () => ({
-    CyberBackground3D: ({ children }: { children: React.ReactNode }) => React.createElement('div', { 'data-testid': 'mock-cyber-bg' }, children),
+    CyberBackground3D: ({ children, overlay }: { children: React.ReactNode; overlay?: React.ReactNode }) =>
+        React.createElement('div', { 'data-testid': 'mock-cyber-bg' }, overlay, children),
 }));

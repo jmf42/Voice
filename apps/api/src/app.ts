@@ -35,6 +35,13 @@ import {
 } from './services.js';
 import type { JobRecord } from './types.js';
 import { verifyTwilioRequest } from './twilio.js';
+import {
+  extractRequestedSchedule,
+  inferTimeWindowFromText,
+  isBusinessQuestion,
+  shouldCaptureIssueText,
+  type RequestedSchedule,
+} from './realtime-intake.js';
 
 const gatherBodySchema = z.object({
   SpeechResult: z.string().optional().default(''),
@@ -69,6 +76,7 @@ interface RealtimeIntakeState {
   addressRaw?: string;
   addressConfirmed: boolean;
   preferredTimeWindow?: TimeWindow;
+  requestedSchedule?: RequestedSchedule;
   phoneConfirmed?: string;
   urgent: boolean;
 }
@@ -566,13 +574,16 @@ export function createApp(deps?: {
 
   function extractIssueCandidate(text: string): string | undefined {
     const normalized = text.trim();
-    if (normalized.length < 8) return undefined;
-    if (/^(hello|hi|bonjour|bonsoir|hey)\b/i.test(normalized)) return undefined;
+    if (!shouldCaptureIssueText(normalized)) return undefined;
     return normalized;
   }
 
   function containsTimeWindowHint(text: string): boolean {
-    return /(morning|afternoon|evening|specific|matin|apres-midi|soir)/i.test(text);
+    return (
+      /(morning|afternoon|evening|specific|matin|apres-midi|soir)/i.test(text) ||
+      Boolean(inferTimeWindowFromText(text)) ||
+      Boolean(extractRequestedSchedule(text))
+    );
   }
 
   function nextMissingRealtimeQuestion(state: RealtimeIntakeState): string | null {
@@ -602,8 +613,14 @@ export function createApp(deps?: {
       state.addressRaw = extractedAddress;
     }
 
+    const requestedSchedule = extractRequestedSchedule(normalized, { now: new Date() });
+    if (requestedSchedule) {
+      state.requestedSchedule = requestedSchedule;
+    }
+
     if (containsTimeWindowHint(normalized)) {
-      state.preferredTimeWindow = classifier.inferTimeWindow(normalized);
+      state.preferredTimeWindow =
+        inferTimeWindowFromText(normalized) ?? classifier.inferTimeWindow(normalized);
     }
 
     if (!state.phoneConfirmed) {
@@ -654,6 +671,12 @@ export function createApp(deps?: {
       : undefined;
     const capturedTimeWindow =
       intakeState?.preferredTimeWindow ?? inferredTimeWindow ?? call.preferredTimeWindow;
+    const requestedSchedule =
+      intakeState?.requestedSchedule ??
+      [...callerTurns]
+        .reverse()
+        .map((turn) => extractRequestedSchedule(turn, { now: call.createdAt }))
+        .find((value): value is RequestedSchedule => Boolean(value));
     const phoneConfirmed =
       intakeState?.phoneConfirmed ??
       call.phoneConfirmed ??
@@ -697,6 +720,7 @@ export function createApp(deps?: {
       outcome: urgent ? 'ESCALATED_CALLBACK_SLA' : 'QUALIFIED_JOB',
       urgent,
       jobDraft: draft,
+      requestedSchedule,
     });
   }
 
@@ -791,6 +815,7 @@ export function createApp(deps?: {
     outcome: CallOutcome;
     urgent: boolean;
     jobDraft: Record<string, unknown>;
+    requestedSchedule?: RequestedSchedule;
   }) {
     const finalized = await store.finalizeCall({
       callId: args.callId,
@@ -804,46 +829,94 @@ export function createApp(deps?: {
         const calendarConnection = await store.getCalendarConnection(finalized.call.tenantId);
         if (calendarConnection) {
           try {
-            const [slot] = await calendarService.findNextAvailableSlots({
-              connection: calendarConnection,
-              preferredTimeWindow: finalJob.preferred_time_window,
-              count: 1,
-            });
-            if (slot) {
-              const booking = await calendarService.createOrUpdateBooking({
-                job: finalJob,
-                tenantId: finalized.call.tenantId,
+            if (args.requestedSchedule) {
+              const available = await calendarService.isSlotAvailable({
                 connection: calendarConnection,
-                slotStart: slot.slotStart,
-                slotEnd: slot.slotEnd,
+                slotStart: args.requestedSchedule.slotStart,
+                slotEnd: args.requestedSchedule.slotEnd,
               });
-              finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
-                status: 'confirmed',
-                booking_status: 'booked',
-                confirmed_slot_start: slot.slotStart,
-                confirmed_slot_end: slot.slotEnd,
-                external_event_id: booking.externalEventId,
+
+              if (available) {
+                const booking = await calendarService.createOrUpdateBooking({
+                  job: finalJob,
+                  tenantId: finalized.call.tenantId,
+                  connection: calendarConnection,
+                  slotStart: args.requestedSchedule.slotStart,
+                  slotEnd: args.requestedSchedule.slotEnd,
+                });
+                finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
+                  status: 'confirmed',
+                  booking_status: 'booked',
+                  confirmed_slot_start: args.requestedSchedule.slotStart,
+                  confirmed_slot_end: args.requestedSchedule.slotEnd,
+                  external_event_id: booking.externalEventId,
+                });
+                await store.addAudit(
+                  finalized.call.tenantId,
+                  'REQUESTED_SLOT_BOOKED',
+                  {
+                    slotStart: args.requestedSchedule.slotStart,
+                    slotEnd: args.requestedSchedule.slotEnd,
+                    externalEventId: booking.externalEventId,
+                  },
+                  { callId: finalized.call.id, jobId: finalJob.id },
+                );
+              } else {
+                finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
+                  booking_status: 'manual_required',
+                });
+                await store.addAudit(
+                  finalized.call.tenantId,
+                  'REQUESTED_SLOT_UNAVAILABLE',
+                  {
+                    slotStart: args.requestedSchedule.slotStart,
+                    slotEnd: args.requestedSchedule.slotEnd,
+                  },
+                  { callId: finalized.call.id, jobId: finalJob.id },
+                );
+              }
+            } else {
+              const [slot] = await calendarService.findNextAvailableSlots({
+                connection: calendarConnection,
+                preferredTimeWindow: finalJob.preferred_time_window,
+                count: 1,
               });
-              await store.addAudit(
-                finalized.call.tenantId,
-                'AUTO_BOOKED',
-                {
+              if (slot) {
+                const booking = await calendarService.createOrUpdateBooking({
+                  job: finalJob,
+                  tenantId: finalized.call.tenantId,
+                  connection: calendarConnection,
                   slotStart: slot.slotStart,
                   slotEnd: slot.slotEnd,
-                  externalEventId: booking.externalEventId,
-                },
-                { callId: finalized.call.id, jobId: finalJob.id },
-              );
-            } else {
-              finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
-                booking_status: 'manual_required',
-              });
-              await store.addAudit(
-                finalized.call.tenantId,
-                'AUTO_BOOKING_SKIPPED',
-                { reason: 'no_available_slots' },
-                { callId: finalized.call.id, jobId: finalJob.id },
-              );
+                });
+                finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
+                  status: 'confirmed',
+                  booking_status: 'booked',
+                  confirmed_slot_start: slot.slotStart,
+                  confirmed_slot_end: slot.slotEnd,
+                  external_event_id: booking.externalEventId,
+                });
+                await store.addAudit(
+                  finalized.call.tenantId,
+                  'AUTO_BOOKED',
+                  {
+                    slotStart: slot.slotStart,
+                    slotEnd: slot.slotEnd,
+                    externalEventId: booking.externalEventId,
+                  },
+                  { callId: finalized.call.id, jobId: finalJob.id },
+                );
+              } else {
+                finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
+                  booking_status: 'manual_required',
+                });
+                await store.addAudit(
+                  finalized.call.tenantId,
+                  'AUTO_BOOKING_SKIPPED',
+                  { reason: 'no_available_slots' },
+                  { callId: finalized.call.id, jobId: finalJob.id },
+                );
+              }
             }
           } catch (error) {
             finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
@@ -1137,9 +1210,13 @@ export function createApp(deps?: {
               }
 
               const missingQuestion = nextMissingRealtimeQuestion(intakeState);
-              const progressHint = missingQuestion
-                ? `\n\nIntake progress: ask this next to complete dispatch details -> ${missingQuestion}`
-                : '\n\nIntake progress: issue, address, preferred time, and callback number are captured.';
+              const answerOnly =
+                isBusinessQuestion(userText) && !intakeState.issueText && !intakeState.addressRaw;
+              const progressHint = answerOnly
+                ? '\n\nCaller intent: this is a business-information question. Answer it directly from the saved business context. Do not ask for dispatch details until the caller clearly asks for service help.'
+                : missingQuestion
+                  ? `\n\nIntake progress: ask this next to complete dispatch details -> ${missingQuestion}`
+                  : '\n\nIntake progress: issue, address, preferred time, and callback number are captured.';
               const guidedUserTurn = `${userText}${progressHint}`;
 
               if (realtimeSession) {

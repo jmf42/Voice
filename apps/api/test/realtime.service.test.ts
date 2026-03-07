@@ -115,6 +115,43 @@ describe('RealtimeConversationService', () => {
     );
   });
 
+  it('uses the current realtime model and sends session model metadata', () => {
+    MockWebSocket.reset();
+    const service = new RealtimeConversationService('test-openai-key');
+
+    service.createSession({
+      businessName: 'Demo Plumbing',
+      knowledgeInstruction: 'Use saved business details first.',
+      escalationPhone: '+41220000000',
+      callbackSlaMinutes: 30,
+      languages: ['en'],
+      onTextDelta: () => {},
+      onTextDone: () => {},
+      onError: () => {},
+    });
+
+    const ws = MockWebSocket.instances[0];
+    expect(ws?.url).toContain('gpt-realtime-1.5');
+    if (!ws) {
+      throw new Error('mock websocket missing');
+    }
+
+    ws.open();
+    const sessionUpdate = ws.sent
+      .map(
+        (entry) =>
+          JSON.parse(entry) as {
+            type: string;
+            session?: { type?: string; model?: string; modalities?: string[] };
+          },
+      )
+      .find((entry) => entry.type === 'session.update');
+
+    expect(sessionUpdate?.session?.type).toBe('realtime');
+    expect(sessionUpdate?.session?.model).toBe('gpt-realtime-1.5');
+    expect(sessionUpdate?.session?.modalities).toEqual(['text']);
+  });
+
   it('streams output_text events and only finalizes once per assistant response', () => {
     MockWebSocket.reset();
     const service = new RealtimeConversationService('test-openai-key');

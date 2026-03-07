@@ -30,7 +30,7 @@ export const envSchema = z.object({
   STORE_MODE: z.enum(['memory', 'prisma']).default('memory'),
   QUEUE_MODE: z.enum(['memory', 'redis']).default('memory'),
   VOICE_FLOW_MODE: z.enum(['guided', 'realtime']).default('guided'),
-  REALTIME_AGENT_MODEL: z.string().default('gpt-realtime-mini'),
+  REALTIME_AGENT_MODEL: z.string().default('gpt-realtime-1.5'),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

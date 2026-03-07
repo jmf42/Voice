@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { listCalls, subscribeCalls, runOnboardingTestCall } from '../api.js';
 import { CallCard } from '../components/CallCard.js';
 import { Icon } from '../components/Icon.js';
@@ -126,103 +127,77 @@ export function DashboardPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-12">
-      <div className="page-head dashboard-head">
-        <div>
-          <h1>{role === 'client_admin' ? 'Business overview' : 'Inbox'}</h1>
-          <p className="subtitle">
-            {role === 'client_admin'
-              ? 'See customer requests, urgent cases, and bookings in one place.'
-              : settings?.business_name
-                ? `${settings.business_name} customer requests and appointments.`
-                : 'Customer requests and appointments.'}
-          </p>
-        </div>
-        <div className="head-controls">
-          <label className="search-field">
-            <span className="sr-only">Search calls</span>
-            <Icon name="search" size={15} className="search-icon" />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search calls…"
-            />
-          </label>
-          {role === 'operator' && (
-            <button
-              className="ghost"
-              onClick={() => void handleCreateSampleRequest()}
-              disabled={loading || actionBusy}
-            >
-              <Icon name="phone" size={14} />
-              Create sample request
-            </button>
-          )}
-          <button onClick={() => void refresh()} disabled={loading || actionBusy} className="ghost">
-            <Icon name="refresh" size={14} />
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      <article
-        className={`assistant-brief ${urgentCount > 0 || followUpCount > 0 ? 'attention' : 'ok'}`}
-      >
-        <header className="mb-4">
-          <h2>{role === 'client_admin' ? 'Today at a glance' : 'What needs attention'}</h2>
-          <p className="subtitle">
-            {urgentCount > 0
-              ? `${urgentCount} urgent request${urgentCount === 1 ? '' : 's'} need a quick callback or transfer.`
-              : followUpCount > 0
-                ? `${followUpCount} request${followUpCount === 1 ? '' : 's'} need follow-up to close the loop.`
-                : 'Everything looks calm right now. New requests will appear here automatically.'}
-          </p>
-        </header>
-        <ul className="plain-list">
-          <li>
-            {bookingCount} booking request{bookingCount === 1 ? '' : 's'} handled successfully.
-          </li>
-          <li>
-            {urgentCount} urgent request{urgentCount === 1 ? '' : 's'} currently in the queue.
-          </li>
-          <li>
-            {followUpCount} request{followUpCount === 1 ? '' : 's'} need manual follow-up.
-          </li>
-        </ul>
-      </article>
-
-      <div className="kpi-grid grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <article className="kpi-card">
-          <span>
-            <Icon name="phone" size={13} /> Requests
-          </span>
-          <strong>{calls.length}</strong>
-          <small>recent customer conversations</small>
-        </article>
-        <article className="kpi-card">
-          <span className="kpi-label--success">
-            <Icon name="calendar" size={13} /> Booked
-          </span>
-          <strong>{bookingCount}</strong>
-          <small>appointments already captured</small>
-        </article>
-        <article className="kpi-card">
-          <span className={urgentCount > 0 ? 'kpi-label--info' : undefined}>
-            <Icon name="alert" size={13} /> Urgent
-          </span>
-          <strong>{urgentCount}</strong>
-          <small>need fast attention</small>
-        </article>
-      </div>
-
-      <div className="board">
-        <div className="board-column new-column recent-calls-column">
-          <div className="column-head">
-            <h2>
-              <Icon name="phone" size={16} /> Latest requests
-            </h2>
-            <span className="count-badge">{shownCalls.length}</span>
+      <section className="mb-8 rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+          <div className="min-w-0">
+            <h1>{role === 'client_admin' ? 'Business overview' : 'Inbox'}</h1>
+            <p className="mt-2 max-w-2xl text-sm text-gray-400">
+              {role === 'client_admin'
+                ? 'See requests, urgent cases, and bookings without digging through multiple screens.'
+                : settings?.business_name
+                  ? `${settings.business_name} requests, follow-ups, and bookings in one workspace.`
+                  : 'Customer requests, follow-ups, and bookings in one workspace.'}
+            </p>
           </div>
-          <div className="cards">
+          <div className="grid gap-3 sm:grid-cols-3 xl:w-[420px]">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                Requests
+              </p>
+              <strong className="mt-1 block text-2xl text-white">{calls.length}</strong>
+              <p className="mt-1 text-sm text-gray-400">recent conversations</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                Booked
+              </p>
+              <strong className="mt-1 block text-2xl text-white">{bookingCount}</strong>
+              <p className="mt-1 text-sm text-gray-400">already on the calendar</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                Attention
+              </p>
+              <strong className="mt-1 block text-2xl text-white">
+                {urgentCount + followUpCount}
+              </strong>
+              <p className="mt-1 text-sm text-gray-400">need a human check</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.65fr),360px]">
+        <section className="rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white">Latest requests</h2>
+              <p className="mt-1 text-sm text-gray-400">
+                New calls appear here automatically. Search by phone or summary.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <label className="search-field">
+                <span className="sr-only">Search calls</span>
+                <Icon name="search" size={15} className="search-icon" />
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search requests…"
+                />
+              </label>
+              <button
+                onClick={() => void refresh()}
+                disabled={loading || actionBusy}
+                className="ghost"
+              >
+                <Icon name="refresh" size={14} />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6 cards">
             {shownCalls.length === 0 ? (
               <div className="empty-state">
                 <Icon name="check" size={28} />
@@ -232,7 +207,78 @@ export function DashboardPage() {
               shownCalls.map((call) => <CallCard key={call.id} call={call} />)
             )}
           </div>
-        </div>
+        </section>
+
+        <aside className="grid gap-6">
+          <article className="rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
+            <h2 className="text-xl font-bold text-white">Quick actions</h2>
+            <p className="mt-2 text-sm text-gray-400">
+              The most common things to do when setting up or checking the workspace.
+            </p>
+            <div className="mt-5 grid gap-3">
+              {role === 'operator' ? (
+                <button
+                  onClick={() => void handleCreateSampleRequest()}
+                  disabled={loading || actionBusy}
+                >
+                  <Icon name="phone" size={14} />
+                  Create sample request
+                </button>
+              ) : null}
+              <Link
+                to="/calendar"
+                className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/8"
+              >
+                <span className="flex items-center gap-2">
+                  <Icon name="calendar" size={14} />
+                  Open calendar
+                </span>
+                <Icon name="chevron" size={14} />
+              </Link>
+              <Link
+                to="/settings"
+                className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/8"
+              >
+                <span className="flex items-center gap-2">
+                  <Icon name="settings" size={14} />
+                  Review settings
+                </span>
+                <Icon name="chevron" size={14} />
+              </Link>
+            </div>
+          </article>
+
+          <article className="rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
+            <h2 className="text-xl font-bold text-white">Need attention</h2>
+            <p className="mt-2 text-sm text-gray-400">
+              A simple summary of where a person may need to step in.
+            </p>
+            <ul className="mt-5 grid gap-3">
+              <li className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <strong className="block text-white">
+                  {urgentCount} urgent request{urgentCount === 1 ? '' : 's'}
+                </strong>
+                <p className="mt-1 text-sm text-gray-400">
+                  Need a quick callback or live transfer.
+                </p>
+              </li>
+              <li className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <strong className="block text-white">
+                  {followUpCount} follow-up{followUpCount === 1 ? '' : 's'}
+                </strong>
+                <p className="mt-1 text-sm text-gray-400">Need manual review to close the loop.</p>
+              </li>
+              <li className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <strong className="block text-white">
+                  {bookingCount} booked request{bookingCount === 1 ? '' : 's'}
+                </strong>
+                <p className="mt-1 text-sm text-gray-400">
+                  Already captured successfully by the assistant.
+                </p>
+              </li>
+            </ul>
+          </article>
+        </aside>
       </div>
 
       {actionMessage ? <p className="action-toast">{actionMessage}</p> : null}

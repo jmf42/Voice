@@ -105,8 +105,30 @@ describe('web app', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText(/We Build/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /AI phone answering for service businesses/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Voice answers every call, captures what the customer needs, and books the job/i,
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByTestId('mock-cyber-bg')).toBeInTheDocument();
+  });
+
+  it('links the landing page navigation to page sections', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('link', { name: 'Capabilities' })).toHaveAttribute(
+      'href',
+      '#capabilities',
+    );
+    expect(screen.getByRole('link', { name: 'System' })).toHaveAttribute('href', '#system');
+    expect(screen.getByRole('link', { name: 'Metrics' })).toHaveAttribute('href', '#metrics');
   });
 
   it('renders login when unauthenticated', async () => {
@@ -116,7 +138,10 @@ describe('web app', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Sign in to Voice' })).toBeInTheDocument();
+    expect(
+      screen.getByText(/Email sign-in is not ready in this environment yet/i),
+    ).toBeInTheDocument();
   });
 
   it('routes authenticated users to onboarding until setup is completed', async () => {
@@ -169,6 +194,145 @@ describe('web app', () => {
 
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Assistant knowledge' })).toBeInTheDocument();
+  });
+
+  it('shows a simpler dashboard workspace with quick actions', async () => {
+    localStorage.setItem('dispatchos_token', 'tenant:demo-tenant:role:operator:user:1');
+    markOnboardingComplete();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/v1/settings')) {
+          return new Response(JSON.stringify(settingsResponse), { status: 200 });
+        }
+
+        if (url.includes('/v1/jobs/stream')) {
+          const payload = JSON.stringify({ items: [] });
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+              controller.close();
+            },
+          });
+          return new Response(stream, {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          });
+        }
+
+        if (url.includes('/v1/jobs')) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: 'job-1',
+                  tenantId: 'demo-tenant',
+                  callId: 'call-1',
+                  status: 'confirmed',
+                  booking_status: 'booked',
+                  caller_phone: '+41225550123',
+                  address_raw: 'Rue du Rhone 21 Geneva',
+                  address_confirmed: true,
+                  urgency: 'normal',
+                  preferred_time_window: 'afternoon',
+                  job_summary: 'Locked out of apartment',
+                  service_hint: 'Emergency lockout',
+                  createdAt: '2026-03-07T09:00:00.000Z',
+                  updatedAt: '2026-03-07T09:00:00.000Z',
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response('{}', { status: 200 });
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeInTheDocument();
+    expect(await screen.findByText('Quick actions')).toBeInTheDocument();
+  });
+
+  it('shows calendar follow-up areas clearly', async () => {
+    localStorage.setItem('dispatchos_token', 'tenant:demo-tenant:role:operator:user:1');
+    markOnboardingComplete();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/v1/settings')) {
+          return new Response(JSON.stringify(settingsResponse), { status: 200 });
+        }
+
+        if (url.includes('/v1/jobs')) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: 'job-1',
+                  tenantId: 'demo-tenant',
+                  callId: 'call-1',
+                  status: 'confirmed',
+                  booking_status: 'booked',
+                  confirmed_slot_start: '2026-03-08T20:00:00.000Z',
+                  confirmed_slot_end: '2026-03-08T21:00:00.000Z',
+                  caller_phone: '+41225550123',
+                  address_raw: 'Rue du Rhone 21 Geneva',
+                  address_confirmed: true,
+                  urgency: 'normal',
+                  preferred_time_window: 'evening',
+                  job_summary: 'Locked out of apartment',
+                  service_hint: 'Emergency lockout',
+                  createdAt: '2026-03-07T09:00:00.000Z',
+                  updatedAt: '2026-03-07T09:00:00.000Z',
+                },
+                {
+                  id: 'job-2',
+                  tenantId: 'demo-tenant',
+                  callId: 'call-2',
+                  status: 'confirmed',
+                  booking_status: 'manual_required',
+                  caller_phone: '+41225550999',
+                  address_raw: 'Avenue de Frontenex 12 Geneva',
+                  address_confirmed: true,
+                  urgency: 'normal',
+                  preferred_time_window: 'morning',
+                  job_summary: 'Hair appointment request',
+                  service_hint: 'Styling',
+                  createdAt: '2026-03-07T10:00:00.000Z',
+                  updatedAt: '2026-03-07T10:00:00.000Z',
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response('{}', { status: 200 });
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/calendar']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeInTheDocument();
+    expect(await screen.findByText('Manual follow-up')).toBeInTheDocument();
   });
 
   it('warns when settings are not being saved to a durable database', async () => {
@@ -228,7 +392,7 @@ describe('web app', () => {
 
     expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Sign in to Voice' })).toBeInTheDocument();
     expect(localStorage.getItem('dispatchos_token')).toBeNull();
   });
 

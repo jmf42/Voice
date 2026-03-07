@@ -19,13 +19,16 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const firebaseReady = isFirebaseConfigured();
+  const fallbackReady = canUseDevFallback();
+
   useEffect(() => {
     const run = async () => {
       if (isLoggedIn()) {
         navigate('/dashboard', { replace: true });
         return;
       }
-      if (!isFirebaseConfigured()) return;
+      if (!firebaseReady) return;
       try {
         const completed = await completeMagicLinkIfPresent();
         if (completed) navigate('/dashboard', { replace: true });
@@ -34,23 +37,24 @@ export function LoginPage() {
       }
     };
     void run();
-  }, [navigate]);
+  }, [firebaseReady, navigate]);
 
   async function handleSendMagicLink() {
     if (!email.trim()) {
       setMessage('Enter your work email to receive a sign-in link.');
       return;
     }
+
     try {
       setBusy(true);
       setMessage(null);
       await sendMagicLink(email.trim());
-      setMessage('Sign-in link sent. Check your inbox and open the link on this device.');
+      setMessage('Check your inbox. Open the sign-in link on this device to continue.');
     } catch (error) {
       setMessage(
         error instanceof Error
-          ? `${error.message} If email sign-in is not ready yet, use the demo access buttons below.`
-          : 'Unable to send sign-in link. Use the demo access buttons below.',
+          ? `${error.message} Use demo access below if you need to continue now.`
+          : 'Unable to send the sign-in link. Use demo access below if you need to continue now.',
       );
     } finally {
       setBusy(false);
@@ -58,62 +62,129 @@ export function LoginPage() {
   }
 
   function handleDemoLogin(role: 'operator' | 'client_admin') {
-    if (!canUseDevFallback()) {
-      setMessage('Fallback login is not enabled in this environment.');
+    if (!fallbackReady) {
+      setMessage('Demo access is not enabled in this environment.');
       return;
     }
+
     const token = role === 'operator' ? DEMO_OPERATOR_TOKEN : DEMO_CLIENT_TOKEN;
     setToken(token, role);
     navigate('/dashboard', { replace: true });
   }
 
-  return (
-    <section className="login-page">
-      <header className="login-hero">
-        <div className="login-brand-icon">
-          <Icon name="zap" size={32} />
-        </div>
-        <h1>Welcome back</h1>
-        <p className="subtitle">
-          Manage customer calls, appointments, and business settings in one place.
-        </p>
-      </header>
+  const supportCopy = firebaseReady
+    ? 'Use your work email and we will send a sign-in link.'
+    : 'Email sign-in is not ready in this environment yet.';
 
-      <div className="login-grid">
-        {isFirebaseConfigured() ? (
-          <article className="settings-card login-card">
-            <h2>
-              <Icon name="zap" size={16} /> Sign in
-            </h2>
-            <p className="helper">Use your work email. We will send a secure sign-in link.</p>
-            <label>
-              <span>Work email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-                disabled={busy}
-              />
-            </label>
-            <button onClick={() => void handleSendMagicLink()} disabled={busy}>
-              <Icon name="zap" size={14} />
-              Send login link
-            </button>
-            {canUseDevFallback() ? (
-              <>
-                <div className="card-divider" />
-                <p className="helper">
-                  If email sign-in is not working yet, use temporary demo access.
+  return (
+    <section className="min-h-[100dvh] bg-[radial-gradient(circle_at_top_left,rgba(244,195,125,0.12),transparent_24%),radial-gradient(circle_at_85%_10%,rgba(110,168,255,0.14),transparent_26%),linear-gradient(180deg,#08111a_0%,#0b1724_52%,#112132_100%)] px-6 py-10 text-white">
+      <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+        <div className="max-w-xl">
+          <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#f4c37d]">
+            <span className="h-2 w-2 rounded-full bg-[#f4c37d]" />
+            Voice workspace access
+          </div>
+
+          <h1 className="font-[Fraunces] text-[clamp(2.8rem,6vw,4.8rem)] font-semibold leading-[0.95] tracking-[-0.05em] text-white">
+            Sign in to Voice
+          </h1>
+          <p className="mt-5 max-w-lg text-lg leading-8 text-[#d7deea]">{supportCopy}</p>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            {[
+              { label: 'Calls', detail: 'See new requests in one inbox.', icon: 'phone' },
+              { label: 'Bookings', detail: 'Confirm jobs and update the schedule.', icon: 'calendar' },
+              { label: 'Urgent', detail: 'Route important calls faster.', icon: 'shield' },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-[24px] border border-white/10 bg-white/[0.05] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.18)]"
+              >
+                <div className="mb-3 inline-flex rounded-2xl border border-[#f4c37d]/20 bg-[#f4c37d]/10 p-2 text-[#f4c37d]">
+                  <Icon name={item.icon} size={16} />
+                </div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#f0f4f8]">
+                  {item.label}
                 </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <button
-                    onClick={() => handleDemoLogin('operator')}
-                    disabled={busy}
-                    className="ghost"
-                  >
+                <p className="mt-2 text-sm leading-6 text-[#b8c4d3]">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[32px] border border-white/10 bg-[#0d1926]/88 p-6 shadow-[0_30px_90px_rgba(0,0,0,0.36)] backdrop-blur-xl md:p-8">
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#f4c37d]">
+                Access
+              </p>
+              <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-white">
+                Continue to your workspace
+              </h2>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#f4c37d]/25 bg-[#f4c37d]/10 text-[#f4c37d]">
+              <Icon name="zap" size={20} />
+            </div>
+          </div>
+
+          {firebaseReady ? (
+            <div className="space-y-5">
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-[#e8edf3]">Work email</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  disabled={busy}
+                />
+              </label>
+
+              <button onClick={() => void handleSendMagicLink()} disabled={busy} className="w-full">
+                <Icon name="zap" size={14} />
+                Email me a sign-in link
+              </button>
+
+              {fallbackReady ? (
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                  <p className="text-sm font-medium leading-6 text-[#c6d0dd]">
+                    Need temporary access? Use one of the demo roles below.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <button
+                      onClick={() => handleDemoLogin('operator')}
+                      disabled={busy}
+                      className="ghost"
+                    >
+                      <Icon name="zap" size={14} />
+                      Business owner demo
+                    </button>
+                    <button
+                      onClick={() => handleDemoLogin('client_admin')}
+                      disabled={busy}
+                      className="ghost"
+                    >
+                      <Icon name="briefcase" size={14} />
+                      Manager demo
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="rounded-[24px] border border-amber-300/18 bg-amber-300/8 p-4 text-[#f6ecd6]">
+                <p className="text-base font-medium">Email sign-in is not available here yet.</p>
+                <p className="mt-2 text-sm leading-6 text-[#e7dcc4]">
+                  Use demo access below for now, or finish Firebase setup to enable email sign-in.
+                </p>
+              </div>
+
+              {fallbackReady ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button onClick={() => handleDemoLogin('operator')} disabled={busy}>
                     <Icon name="zap" size={14} />
-                    Continue as business owner
+                    Business owner demo
                   </button>
                   <button
                     onClick={() => handleDemoLogin('client_admin')}
@@ -121,87 +192,29 @@ export function LoginPage() {
                     className="ghost"
                   >
                     <Icon name="briefcase" size={14} />
-                    Continue as manager
+                    Manager demo
                   </button>
                 </div>
-              </>
-            ) : null}
-          </article>
-        ) : (
-          <article className="settings-card login-card">
-            <h2>
-              <Icon name="settings" size={16} /> Sign-in setup
-            </h2>
-            <p className="helper">
-              Secure email sign-in is not fully configured yet in this environment.
+              ) : (
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+                  <p className="text-sm leading-6 text-[#c6d0dd]">
+                    Demo access is disabled in this environment.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {message ? (
+            <p
+              role="status"
+              className="mt-5 rounded-[22px] border border-[#6ea8ff]/20 bg-[#6ea8ff]/10 px-4 py-3 text-sm leading-6 text-[#dfeaff]"
+            >
+              {message}
             </p>
-            {canUseDevFallback() ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <button onClick={() => handleDemoLogin('operator')} disabled={busy}>
-                  <Icon name="zap" size={14} />
-                  Continue as business owner
-                </button>
-                <button
-                  onClick={() => handleDemoLogin('client_admin')}
-                  disabled={busy}
-                  className="ghost"
-                >
-                  <Icon name="briefcase" size={14} />
-                  Continue as manager
-                </button>
-              </div>
-            ) : (
-              <div className="empty-state-inline">
-                <Icon name="alert" size={18} />
-                <p>Finish Firebase setup to enable secure sign-in.</p>
-              </div>
-            )}
-          </article>
-        )}
-
-        <article className="settings-card">
-          <h2>
-            <Icon name="briefcase" size={16} /> What you can do here
-          </h2>
-          <ul className="plain-list">
-            <li>
-              <Icon name="check" size={13} /> Set up your business details, services, FAQs, and
-              calendar.
-            </li>
-            <li>
-              <Icon name="check" size={13} /> See new customer requests and urgent cases in one
-              simple inbox.
-            </li>
-            <li>
-              <Icon name="check" size={13} /> Confirm appointments and keep your schedule up to
-              date.
-            </li>
-          </ul>
-        </article>
-
-        <article className="settings-card">
-          <h2>
-            <Icon name="shield" size={16} /> Access
-          </h2>
-          <ul className="plain-list">
-            <li>
-              <Icon name="shield" size={13} /> Each business keeps its own data and settings.
-            </li>
-            <li>
-              <Icon name="zap" size={13} /> Team members sign in with approved company emails.
-            </li>
-            <li>
-              <Icon name="check" size={13} /> Business owner and manager roles stay separated.
-            </li>
-          </ul>
-        </article>
+          ) : null}
+        </div>
       </div>
-
-      {message ? (
-        <p role="status" className="action-toast login-toast">
-          {message}
-        </p>
-      ) : null}
     </section>
   );
 }

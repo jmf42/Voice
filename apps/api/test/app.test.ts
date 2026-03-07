@@ -600,6 +600,143 @@ describe('api', () => {
     expect(items[0]?.external_event_id).toBeTruthy();
   });
 
+  it('keeps informational questions out of the issue summary and books the requested realtime slot', async () => {
+    const prevMode = process.env.VOICE_FLOW_MODE;
+    const prevBaseUrl = process.env.API_BASE_URL;
+    process.env.VOICE_FLOW_MODE = 'realtime';
+
+    const freePort = await new Promise<number>((resolve, reject) => {
+      const server = createServer();
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        const port = typeof address === 'object' && address ? Number(address.port) : 4104;
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve(port);
+        });
+      });
+    });
+    process.env.API_BASE_URL = `http://127.0.0.1:${freePort}`;
+
+    const store = new InMemoryStore();
+    const app = createApp({ store });
+    await app.listen({ host: '127.0.0.1', port: freePort });
+
+    try {
+      const start = await app.inject({
+        method: 'GET',
+        url: '/v1/calendar/google/start',
+        headers: authHeader,
+      });
+      const authUrl = JSON.parse(start.body).authUrl as string;
+      const state = new URL(authUrl).searchParams.get('state');
+      expect(state).toBeTruthy();
+
+      const callback = await app.inject({
+        method: 'GET',
+        url: `/v1/calendar/google/callback?state=${state}&code=demo`,
+      });
+      expect(callback.statusCode).toBe(200);
+
+      const inbound = await app.inject({
+        method: 'POST',
+        url: '/v1/telephony/inbound/demo-tenant',
+        payload: 'CallSid=CA-REALTIME-SLOT-1&From=%2B4179000020',
+        headers: formHeaders,
+      });
+      expect(inbound.statusCode).toBe(200);
+
+      const match = inbound.body.match(/url="([^"]+)"/);
+      expect(match?.[1]).toBeTruthy();
+      const url = (match?.[1] ?? '').replaceAll('&amp;', '&');
+
+      await new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(url);
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Timed out waiting for realtime websocket responses'));
+        }, 4000);
+
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'setup' }));
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: "Can you tell me the company's name?",
+            }),
+          );
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: 'What services do you provide?',
+            }),
+          );
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: 'I need my apartment door opened without damaging the lock.',
+            }),
+          );
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: 'Theodore Weber 36 Geneva, Switzerland.',
+            }),
+          );
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: 'March 8 2026 at 9 PM works for me.',
+            }),
+          );
+          setTimeout(() => ws.close(), 300);
+        });
+
+        ws.on('error', (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+
+        ws.on('close', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      let items: Array<{
+        job_summary: string;
+        booking_status?: string;
+        confirmed_slot_start?: string;
+      }> = [];
+
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const jobs = await app.inject({ method: 'GET', url: '/v1/jobs', headers: authHeader });
+        expect(jobs.statusCode).toBe(200);
+        items = JSON.parse(jobs.body).items;
+        if (items.length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      expect(items.length).toBeGreaterThan(0);
+      expect(items[0]?.job_summary.toLowerCase()).not.toContain("company's name");
+      expect(items[0]?.booking_status).toBe('booked');
+      expect(items[0]?.confirmed_slot_start).toBe('2026-03-08T20:00:00.000Z');
+    } finally {
+      await app.close();
+      if (prevMode === undefined) {
+        delete process.env.VOICE_FLOW_MODE;
+      } else {
+        process.env.VOICE_FLOW_MODE = prevMode;
+      }
+      if (prevBaseUrl === undefined) {
+        delete process.env.API_BASE_URL;
+      } else {
+        process.env.API_BASE_URL = prevBaseUrl;
+      }
+    }
+  }, 12_000);
+
   it('streams live job updates for the dashboard', async () => {
     const freePort = await new Promise<number>((resolve, reject) => {
       const server = createServer();
