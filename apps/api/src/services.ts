@@ -261,8 +261,6 @@ export class RealtimeConversationService {
         JSON.stringify({
           type: 'session.update',
           session: {
-            type: 'realtime',
-            model: this.realtimeModel,
             modalities: ['text'],
             instructions,
             max_response_output_tokens: 180,

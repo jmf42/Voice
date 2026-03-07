@@ -115,7 +115,7 @@ describe('RealtimeConversationService', () => {
     );
   });
 
-  it('uses the current realtime model and sends session model metadata', () => {
+  it('uses the current realtime model in the websocket URL and keeps session.update minimal', () => {
     MockWebSocket.reset();
     const service = new RealtimeConversationService('test-openai-key');
 
@@ -142,13 +142,11 @@ describe('RealtimeConversationService', () => {
         (entry) =>
           JSON.parse(entry) as {
             type: string;
-            session?: { type?: string; model?: string; modalities?: string[] };
+            session?: { modalities?: string[] };
           },
       )
       .find((entry) => entry.type === 'session.update');
 
-    expect(sessionUpdate?.session?.type).toBe('realtime');
-    expect(sessionUpdate?.session?.model).toBe('gpt-realtime-1.5');
     expect(sessionUpdate?.session?.modalities).toEqual(['text']);
   });
 
