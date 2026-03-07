@@ -43,19 +43,9 @@ beforeEach(() => {
         return new Response(JSON.stringify(settingsResponse), { status: 200 });
       }
 
-      if (url.includes('/v2/calls/stream')) {
+      if (url.includes('/v1/jobs/stream')) {
         const payload = JSON.stringify({
-          items: [
-            {
-              id: 'c1',
-              call_intent: 'booking',
-              hallucination_flag: false,
-              missed_booking_opportunity: false,
-              duration_seconds: 60,
-              caller_phone: '+15555555555',
-              summary: 'Fake call',
-            },
-          ],
+          items: [],
         });
         const streamData = `data: ${payload}\n\n`;
         const encoder = new TextEncoder();
@@ -71,7 +61,7 @@ beforeEach(() => {
         });
       }
 
-      if (url.includes('/v2/calls')) {
+      if (url.includes('/v1/jobs')) {
         return new Response(JSON.stringify({ items: [] }), { status: 200 });
       }
 
@@ -331,7 +321,7 @@ describe('web app', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeInTheDocument();
+    expect(await screen.findByText('Upcoming appointments')).toBeInTheDocument();
     expect(await screen.findByText('Manual follow-up')).toBeInTheDocument();
   });
 
@@ -390,7 +380,7 @@ describe('web app', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeInTheDocument();
+    expect(await screen.findByText('Latest requests')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('heading', { name: 'Sign in to Voice' })).toBeInTheDocument();
     expect(localStorage.getItem('dispatchos_token')).toBeNull();
@@ -407,7 +397,7 @@ describe('web app', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeInTheDocument();
+    expect(await screen.findByText('Latest requests')).toBeInTheDocument();
     const primaryNav = screen.getByRole('navigation', { name: 'Primary' });
     fireEvent.click(within(primaryNav).getByRole('link', { name: /Settings/ }));
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
