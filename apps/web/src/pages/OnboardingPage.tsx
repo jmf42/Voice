@@ -47,6 +47,12 @@ function sanitizePhone(input: string): string {
   return input.trim().replace(/\s+/g, ' ');
 }
 
+function normalizeWebsiteUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return trimmed;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 function isBlank(value: string | undefined): boolean {
   return !value || value.trim().length === 0;
 }
@@ -84,8 +90,10 @@ export function OnboardingPage() {
     try {
       setBusy(true);
       setMessage(null);
-      const extracted = await extractWebsiteData(importUrl);
-      setDraft({ ...draft, ...extracted, website_url: importUrl } as Settings);
+      const normalizedUrl = normalizeWebsiteUrl(importUrl);
+      const extracted = await extractWebsiteData(normalizedUrl);
+      setImportUrl(normalizedUrl);
+      setDraft({ ...draft, ...extracted, website_url: normalizedUrl } as Settings);
       setMessage('Website details imported. Review them, then continue.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Website import failed.');

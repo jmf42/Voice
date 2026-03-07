@@ -125,6 +125,115 @@ function humanRequest(text: string): boolean {
   ].some((token) => normalized.includes(token));
 }
 
+function normalizeWebsiteUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+function buildWebsiteFetchCandidates(input: string): string[] {
+  const normalized = normalizeWebsiteUrl(input);
+  const parsed = new URL(normalized);
+  const candidates = [parsed.toString()];
+
+  if (parsed.protocol === 'http:') {
+    const httpsUrl = new URL(parsed.toString());
+    httpsUrl.protocol = 'https:';
+    candidates.unshift(httpsUrl.toString());
+  }
+
+  if (!parsed.hostname.startsWith('www.')) {
+    const withWww = new URL(parsed.toString());
+    withWww.hostname = `www.${parsed.hostname}`;
+    candidates.push(withWww.toString());
+  }
+
+  return [...new Set(candidates)];
+}
+
+function sanitizeWebsiteText(value: string): string {
+  return value
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 8000);
+}
+
+async function fetchWebsiteText(input: string): Promise<string> {
+  const headers = {
+    'User-Agent':
+      'Mozilla/5.0 (compatible; DispatchOS/1.0; +https://dispatchos-web-277626955710.us-central1.run.app)',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Cache-Control': 'no-cache',
+  };
+
+  let lastStatus: number | undefined;
+
+  for (const candidate of buildWebsiteFetchCandidates(input)) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+
+    try {
+      const res = await fetch(candidate, {
+        signal: controller.signal,
+        headers,
+        redirect: 'follow',
+      });
+
+      if (!res.ok) {
+        lastStatus = res.status;
+        continue;
+      }
+
+      const raw = sanitizeWebsiteText(await res.text());
+      if (raw.length >= 120) {
+        return raw;
+      }
+    } catch {
+      // Try the next candidate or the text-reader fallback below.
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  const normalized = normalizeWebsiteUrl(input);
+  const jinaUrl = `https://r.jina.ai/http://${normalized.replace(/^https?:\/\//i, '')}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const res = await fetch(jinaUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': headers['User-Agent'],
+        Accept: 'text/plain,text/html;q=0.9,*/*;q=0.7',
+      },
+      redirect: 'follow',
+    });
+
+    if (!res.ok) {
+      lastStatus = res.status;
+    } else {
+      const raw = sanitizeWebsiteText(await res.text());
+      if (raw.length > 0) {
+        return raw;
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (lastStatus) {
+    throw new Error(`Could not fetch URL (HTTP ${lastStatus}).`);
+  }
+
+  throw new Error('Could not fetch the URL. Check that it is publicly accessible.');
+}
+
 function mapTransferStatusToOutcome(status: string): CallOutcome {
   const normalized = status.toLowerCase();
   return normalized === 'completed' || normalized === 'answered'
@@ -1837,7 +1946,7 @@ export function createApp(deps?: {
   });
 
   app.post('/v1/website/extract', { preHandler: requireAuth }, async (request, reply) => {
-    const body = z.object({ url: z.string().url() }).parse(request.body ?? {});
+    const body = z.object({ url: z.string().min(1) }).parse(request.body ?? {});
 
     if (!env.OPENAI_API_KEY) {
       return reply
@@ -1847,28 +1956,13 @@ export function createApp(deps?: {
 
     let pageText: string;
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-      const res = await fetch(body.url, {
-        signal: controller.signal,
-        headers: { 'User-Agent': 'DispatchOS/1.0 (website-import)' },
-      });
-      clearTimeout(timeout);
-      if (!res.ok) {
-        return reply.status(422).send({ error: `Could not fetch URL (HTTP ${res.status}).` });
-      }
-      const html = await res.text();
-      pageText = html
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 8000);
-    } catch {
-      return reply
-        .status(422)
-        .send({ error: 'Could not fetch the URL. Check that it is publicly accessible.' });
+      pageText = await fetchWebsiteText(body.url);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Could not fetch the URL. Check that it is publicly accessible.';
+      return reply.status(422).send({ error: message });
     }
 
     try {

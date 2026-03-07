@@ -147,15 +147,46 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
-      <div className="page-head relative z-10 mb-8 p-6 bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl">
-        <div>
-          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-            Settings
-          </h1>
-          <p className="text-gray-400 mt-2">
-            One place to manage your business details, AI knowledge, and calendar setup.
-          </p>
+    <div className="max-w-6xl mx-auto px-6 py-12">
+      <div className="mb-8 rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+              Settings
+            </h1>
+            <p className="mt-2 max-w-2xl text-gray-400">
+              Keep your business details, assistant knowledge, and calendar setup in one clean
+              place.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:w-[340px]">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                Storage
+              </p>
+              <strong className="mt-1 block text-white">
+                {draft.persistence_mode === 'memory' ? 'Temporary memory' : 'Database'}
+              </strong>
+              <p className="mt-1 text-sm text-gray-400">
+                {draft.persistence_durable
+                  ? 'Changes are durable.'
+                  : 'Changes are not durable yet.'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                Calendar
+              </p>
+              <strong className="mt-1 block text-white">
+                {draft.calendar_enabled ? 'Connected' : 'Not connected'}
+              </strong>
+              <p className="mt-1 text-sm text-gray-400">
+                {draft.calendar_enabled
+                  ? 'Appointments can sync.'
+                  : 'Connect Google Calendar to book.'}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -164,167 +195,168 @@ export function SettingsPage() {
           <strong className="block mb-1 text-amber-300">Temporary storage only</strong>
           <p className="text-sm leading-relaxed text-amber-100/90">
             Settings are being saved in temporary memory right now. Changes will update the app
-            immediately, but they are not being written to a real database until the backend is
-            switched to database mode.
+            immediately, but they are not being written to a real database until the backend is in
+            database mode.
           </p>
         </div>
       ) : null}
 
-      <div className="settings-layout grid gap-6">
-        <article className="settings-card bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-8 shadow-2xl transition hover:bg-black/50">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-              <Icon name="settings" size={20} />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-white">Workspace basics</h2>
-              <p className="text-sm text-gray-400">
-                The core business and routing information your team relies on.
-              </p>
-            </div>
-          </div>
-          <div className="h-px w-full bg-white/10 mb-6" />
-          {role === 'operator' ? (
-            <div className="flex justify-between items-center mb-6 rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
-              <div>
-                <strong className="block text-white mb-1">AI intake</strong>
-                <p className="text-sm text-gray-400">
-                  {draft.enabled
-                    ? 'Calls are handled by the assistant first.'
-                    : 'Calls go straight to your business phone.'}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr),360px]">
+        <div className="grid min-w-0 gap-6">
+          <article className="rounded-[28px] border border-white/10 bg-black/40 p-7 shadow-2xl backdrop-blur-2xl">
+            <div className="flex items-start gap-4">
+              <div className="mt-1 flex h-11 w-11 items-center justify-center rounded-2xl border border-purple-500/20 bg-purple-500/10 text-purple-400">
+                <Icon name="settings" size={20} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold text-white">Business basics</h2>
+                <p className="mt-1 text-sm text-gray-400">
+                  These are the core details used for call routing and caller-facing answers.
                 </p>
               </div>
-              <button
-                type="button"
-                className={
-                  draft.enabled
-                    ? 'px-4 py-2 rounded-full border border-blue-500/50 bg-blue-500/20 text-blue-400'
-                    : 'px-4 py-2 rounded-full border border-white/10 bg-white/5 text-gray-400'
-                }
-                onClick={() =>
-                  void save(
-                    { enabled: !draft.enabled },
-                    `AI intake ${draft.enabled ? 'disabled' : 'enabled'}.`,
-                  )
-                }
-                disabled={saving}
-              >
-                {draft.enabled ? 'Active' : 'Bypassed'}
-              </button>
             </div>
-          ) : null}
-          <label className="block mb-4">
-            <span className="block text-sm text-gray-400 mb-2">Business name</span>
-            <input
-              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500/50"
-              value={draft.business_name}
-              onChange={(e) => setDraft({ ...draft, business_name: e.target.value })}
-              disabled={saving}
-            />
-          </label>
-          <label className="block mb-4">
-            <span className="block text-sm text-gray-400 mb-2">Main phone</span>
-            <input
-              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500/50"
-              value={draft.business_phone}
-              onChange={(e) => setDraft({ ...draft, business_phone: e.target.value })}
-              disabled={saving}
-            />
-          </label>
-          <label className="block mb-6">
-            <span className="block text-sm text-gray-400 mb-2">Urgent handoff phone</span>
-            <input
-              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500/50"
-              value={draft.escalation_phone}
-              onChange={(e) => setDraft({ ...draft, escalation_phone: e.target.value })}
-              disabled={saving}
-            />
-          </label>
-          <p className="text-sm text-gray-400 mb-4">
-            If AI intake is disabled, inbound calls go to the main phone. Urgent calls are routed to
-            the urgent handoff phone.
-          </p>
-          <button
-            className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium flex items-center gap-2 transition"
-            onClick={() =>
-              void save({
-                business_name: draft.business_name,
-                business_phone: draft.business_phone,
-                escalation_phone: draft.escalation_phone,
-              })
-            }
-            disabled={saving}
-          >
-            <Icon name="check" size={16} /> Save Basics
-          </button>
-        </article>
 
-        {role === 'operator' && (
-          <article className="settings-card bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-8 shadow-2xl transition hover:bg-black/50">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                <Icon name="book" size={20} />
+            {role === 'operator' ? (
+              <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <strong className="block text-white">AI intake</strong>
+                  <p className="mt-1 text-sm text-gray-400">
+                    {draft.enabled
+                      ? 'Calls are handled by the assistant first.'
+                      : 'Calls go straight to your business phone.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={draft.enabled ? '' : 'ghost'}
+                  onClick={() =>
+                    void save(
+                      { enabled: !draft.enabled },
+                      `AI intake ${draft.enabled ? 'disabled' : 'enabled'}.`,
+                    )
+                  }
+                  disabled={saving}
+                >
+                  <Icon name={draft.enabled ? 'check' : 'alert'} size={15} />
+                  {draft.enabled ? 'AI active' : 'AI bypassed'}
+                </button>
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-white">Assistant knowledge</h2>
-                <p className="text-sm text-gray-400">
-                  This is the information the assistant should use when answering callers and
-                  preparing jobs.
-                </p>
-              </div>
+            ) : null}
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="block text-sm text-gray-400 mb-2">Business name</span>
+                <input
+                  className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-purple-500/50 focus:outline-none"
+                  value={draft.business_name}
+                  onChange={(e) => setDraft({ ...draft, business_name: e.target.value })}
+                  disabled={saving}
+                />
+              </label>
+              <label className="block">
+                <span className="block text-sm text-gray-400 mb-2">Main phone</span>
+                <input
+                  className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-purple-500/50 focus:outline-none"
+                  value={draft.business_phone}
+                  onChange={(e) => setDraft({ ...draft, business_phone: e.target.value })}
+                  disabled={saving}
+                />
+              </label>
             </div>
-            <div className="h-px w-full bg-white/10 mb-6" />
-            <label className="block mb-6">
-              <span className="block text-sm text-gray-400 mb-2">
-                Business profile, policies, and AI memory
-              </span>
-              <textarea
-                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-emerald-500/50 resize-y"
-                value={draft.business_context}
-                onChange={(e) => setDraft({ ...draft, business_context: e.target.value })}
-                rows={6}
-                placeholder="Example: We only serve central Geneva. Emergency surcharge after 20:00 is CHF 90. Weekend visits must be confirmed by phone."
+
+            <label className="mt-4 block">
+              <span className="block text-sm text-gray-400 mb-2">Urgent handoff phone</span>
+              <input
+                className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-purple-500/50 focus:outline-none"
+                value={draft.escalation_phone}
+                onChange={(e) => setDraft({ ...draft, escalation_phone: e.target.value })}
                 disabled={saving}
               />
             </label>
-            <div className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <div className="flex items-center justify-between gap-4 mb-4">
+
+            <p className="mt-4 text-sm text-gray-400">
+              If AI intake is disabled, inbound calls go to the main phone. Urgent calls are routed
+              to the urgent handoff phone.
+            </p>
+
+            <button
+              className="mt-6"
+              onClick={() =>
+                void save({
+                  business_name: draft.business_name,
+                  business_phone: draft.business_phone,
+                  escalation_phone: draft.escalation_phone,
+                })
+              }
+              disabled={saving}
+            >
+              <Icon name="check" size={16} />
+              Save basics
+            </button>
+          </article>
+
+          {role === 'operator' ? (
+            <article className="rounded-[28px] border border-white/10 bg-black/40 p-7 shadow-2xl backdrop-blur-2xl">
+              <div className="flex items-start gap-4">
+                <div className="mt-1 flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
+                  <Icon name="zap" size={20} />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-xl font-bold text-white">Assistant knowledge</h2>
+                  <p className="mt-1 text-sm text-gray-400">
+                    This is the information the assistant should use when answering callers and
+                    preparing jobs.
+                  </p>
+                </div>
+              </div>
+
+              <label className="mt-6 block">
+                <span className="block text-sm text-gray-400 mb-2">
+                  Business profile, policies, and AI memory
+                </span>
+                <textarea
+                  className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-4 text-white focus:border-emerald-500/50 focus:outline-none resize-y"
+                  value={draft.business_context}
+                  onChange={(e) => setDraft({ ...draft, business_context: e.target.value })}
+                  rows={7}
+                  placeholder="Example: We serve central Geneva only. Emergency surcharge after 20:00 is CHF 90. Weekend visits must be confirmed by phone."
+                  disabled={saving}
+                />
+              </label>
+
+              <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="text-lg font-semibold text-white">FAQs</h3>
-                    <p className="text-sm text-gray-400">
+                    <p className="mt-1 text-sm text-gray-400">
                       Short, direct answers for common caller questions.
                     </p>
                   </div>
-                  <button
-                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-sm"
-                    type="button"
-                    onClick={addFaq}
-                    disabled={saving}
-                  >
-                    <Icon name="plus" size={14} /> Add FAQ
+                  <button type="button" onClick={addFaq} disabled={saving} className="ghost">
+                    Add FAQ
                   </button>
                 </div>
-                <div className="grid gap-4">
+
+                <div className="mt-4 grid gap-4">
                   {(draft.faqs ?? []).map((faq, index) => (
                     <div
                       key={`${index}-${faq.question}`}
                       className="rounded-2xl border border-white/10 bg-black/30 p-4"
                     >
-                      <div className="flex justify-end mb-2">
+                      <div className="mb-3 flex justify-end">
                         <button
                           type="button"
                           onClick={() => removeFaq(index)}
                           disabled={saving}
-                          className="text-gray-400 hover:text-white"
+                          className="ghost"
                         >
-                          <Icon name="x" size={14} />
+                          Remove
                         </button>
                       </div>
                       <label className="block mb-3">
                         <span className="block text-sm text-gray-400 mb-2">Question</span>
                         <input
-                          className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-emerald-500/50 focus:outline-none"
                           value={faq.question}
                           onChange={(e) => updateFaq(index, 'question', e.target.value)}
                           disabled={saving}
@@ -333,7 +365,7 @@ export function SettingsPage() {
                       <label className="block">
                         <span className="block text-sm text-gray-400 mb-2">Answer</span>
                         <textarea
-                          className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 resize-y"
+                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-emerald-500/50 focus:outline-none resize-y"
                           value={faq.answer}
                           onChange={(e) => updateFaq(index, 'answer', e.target.value)}
                           rows={3}
@@ -350,44 +382,40 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <div className="flex items-center justify-between gap-4 mb-4">
+              <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="text-lg font-semibold text-white">Services</h3>
-                    <p className="text-sm text-gray-400">
+                    <p className="mt-1 text-sm text-gray-400">
                       These services help the assistant identify what the caller needs.
                     </p>
                   </div>
-                  <button
-                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-sm"
-                    type="button"
-                    onClick={addService}
-                    disabled={saving}
-                  >
-                    <Icon name="plus" size={14} /> Add service
+                  <button type="button" onClick={addService} disabled={saving} className="ghost">
+                    Add service
                   </button>
                 </div>
-                <div className="grid gap-4">
+
+                <div className="mt-4 grid gap-4">
                   {(draft.services ?? []).map((service, index) => (
                     <div
                       key={`${index}-${service.name}`}
                       className="rounded-2xl border border-white/10 bg-black/30 p-4"
                     >
-                      <div className="flex justify-end mb-2">
+                      <div className="mb-3 flex justify-end">
                         <button
                           type="button"
                           onClick={() => removeService(index)}
                           disabled={saving}
-                          className="text-gray-400 hover:text-white"
+                          className="ghost"
                         >
-                          <Icon name="x" size={14} />
+                          Remove
                         </button>
                       </div>
-                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr),140px,140px]">
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr),160px,120px]">
                         <label className="block">
                           <span className="block text-sm text-gray-400 mb-2">Service name</span>
                           <input
-                            className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+                            className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-emerald-500/50 focus:outline-none"
                             value={service.name}
                             onChange={(e) => updateService(index, 'name', e.target.value)}
                             disabled={saving}
@@ -396,7 +424,7 @@ export function SettingsPage() {
                         <label className="block">
                           <span className="block text-sm text-gray-400 mb-2">Price</span>
                           <input
-                            className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+                            className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-emerald-500/50 focus:outline-none"
                             value={service.price || ''}
                             onChange={(e) => updateService(index, 'price', e.target.value)}
                             disabled={saving}
@@ -405,7 +433,7 @@ export function SettingsPage() {
                         <label className="block">
                           <span className="block text-sm text-gray-400 mb-2">Minutes</span>
                           <input
-                            className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+                            className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-emerald-500/50 focus:outline-none"
                             type="number"
                             min={5}
                             step={5}
@@ -417,10 +445,10 @@ export function SettingsPage() {
                           />
                         </label>
                       </div>
-                      <label className="block mt-3">
+                      <label className="mt-3 block">
                         <span className="block text-sm text-gray-400 mb-2">Description</span>
                         <input
-                          className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+                          className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-emerald-500/50 focus:outline-none"
                           value={service.description || ''}
                           onChange={(e) => updateService(index, 'description', e.target.value)}
                           disabled={saving}
@@ -435,76 +463,80 @@ export function SettingsPage() {
                   ) : null}
                 </div>
               </div>
+
+              <button
+                className="mt-6"
+                onClick={() =>
+                  void save(
+                    {
+                      business_context: draft.business_context,
+                      faqs: draft.faqs,
+                      services: draft.services,
+                    },
+                    'Assistant knowledge saved.',
+                  )
+                }
+                disabled={saving}
+              >
+                <Icon name="check" size={16} />
+                Save knowledge
+              </button>
+            </article>
+          ) : null}
+        </div>
+
+        <aside className="grid gap-6">
+          <article className="rounded-[28px] border border-white/10 bg-black/40 p-7 shadow-2xl backdrop-blur-2xl xl:sticky xl:top-24">
+            <div className="flex items-start gap-4">
+              <div className="mt-1 flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-400">
+                <Icon name="calendar" size={20} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold text-white">Calendar & testing</h2>
+                <p className="mt-1 text-sm text-gray-400">
+                  Connect scheduling and validate the flow end-to-end.
+                </p>
+              </div>
             </div>
-            <button
-              className="mt-6 px-6 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium flex items-center gap-2 transition"
-              onClick={() =>
-                void save(
-                  {
-                    business_context: draft.business_context,
-                    faqs: draft.faqs,
-                    services: draft.services,
-                  },
-                  'Assistant knowledge saved.',
-                )
-              }
-              disabled={saving}
-            >
-              <Icon name="check" size={16} /> Save Knowledge
-            </button>
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <strong className="block text-white">Google Calendar</strong>
+              <p className="mt-1 text-sm text-gray-400">
+                {draft.calendar_enabled ? 'Connected and syncing' : 'Not connected yet'}
+              </p>
+            </div>
+
+            <div className="mt-6 grid gap-3">
+              <button onClick={() => void handleCalendarConnect()} disabled={saving}>
+                <Icon name="calendar" size={16} />
+                {draft.calendar_enabled ? 'Reconnect calendar' : 'Connect calendar'}
+              </button>
+              <button className="ghost" onClick={() => void handleTestCall()} disabled={saving}>
+                <Icon name="phone" size={16} />
+                Create sample job
+              </button>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <strong className="block text-white">What the assistant uses</strong>
+              <ul className="mt-3 grid gap-2 text-sm text-gray-400">
+                <li>Business name and phone routing</li>
+                <li>Business context and policies</li>
+                <li>FAQs and services</li>
+                <li>Calendar connection and booking availability</li>
+              </ul>
+            </div>
+
+            <p className="mt-6 text-sm text-gray-400">
+              After connecting Google Calendar, confirmed jobs can be written to the connected
+              calendar and auto-booked when the flow has enough information.
+            </p>
           </article>
-        )}
-
-        <article className="settings-card bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-8 shadow-2xl transition hover:bg-black/50">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-              <Icon name="calendar" size={20} />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-white">Calendar & Testing</h2>
-              <p className="text-sm text-gray-400">
-                Connect scheduling and validate the flow end-to-end.
-              </p>
-            </div>
-          </div>
-          <div className="h-px w-full bg-white/10 mb-6" />
-
-          <div className="mb-6 p-4 rounded-xl border border-white/5 bg-white/5 flex items-center justify-between">
-            <div>
-              <strong className="text-white block mb-1">Google Calendar</strong>
-              <p className="text-sm text-gray-400">
-                {draft.calendar_enabled ? '✓ Connected and syncing' : '○ Not connected'}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-4">
-            <button
-              className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium flex items-center gap-2 transition shadow-[0_0_20px_rgba(37,99,235,0.3)]"
-              onClick={() => void handleCalendarConnect()}
-              disabled={saving}
-            >
-              <Icon name="calendar" size={16} />{' '}
-              {draft.calendar_enabled ? 'Reconnect Calendar' : 'Connect Calendar'}
-            </button>
-            <button
-              className="px-6 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium flex items-center gap-2 transition"
-              onClick={() => void handleTestCall()}
-              disabled={saving}
-            >
-              <Icon name="phone" size={16} /> Create Sample Job (No Call)
-            </button>
-          </div>
-          <p className="mt-6 text-sm text-gray-400">
-            After connecting Google Calendar, confirmed jobs can be written to the connected
-            calendar and auto-booked when the flow has enough information.
-          </p>
-        </article>
+        </aside>
       </div>
 
-      {/* Toast */}
       {message ? (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full bg-white text-black font-medium shadow-2xl z-50">
+        <div className="fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-full bg-white px-6 py-3 font-medium text-black shadow-2xl">
           {message}
         </div>
       ) : null}
