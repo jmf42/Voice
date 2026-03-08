@@ -82,6 +82,11 @@ const urgentKeywordsFr = [
   'urgence',
   'explosion',
   'odeur de gaz',
+  'porte claquee',
+  'porte bloquee',
+  'enferme dehors',
+  'enfermée dehors',
+  'bloque dehors',
 ];
 
 const urgentKeywordsEn = [
@@ -92,6 +97,11 @@ const urgentKeywordsEn = [
   'urgent',
   'emergency',
   'leak everywhere',
+  'locked out',
+  'door jammed',
+  'can’t get in',
+  "can't get in",
+  'cannot get in',
 ];
 
 export const URGENT_KEYWORDS = {
@@ -101,9 +111,35 @@ export const URGENT_KEYWORDS = {
 
 export function detectLanguage(text: string): 'fr' | 'en' {
   const normalized = text.toLowerCase();
-  const frSignals = ['bonjour', 'chauffage', 'fuite', 'urgence'];
+  const frSignals = [
+    'bonjour',
+    'bonsoir',
+    'chauffage',
+    'fuite',
+    'urgence',
+    'serrure',
+    'porte',
+    'rue',
+    'demain',
+    'merci',
+    'oui',
+  ];
+  const enSignals = [
+    'hello',
+    'hi',
+    'thanks',
+    'please',
+    'tomorrow',
+    'door',
+    'locksmith',
+    'address',
+    'morning',
+    'afternoon',
+    'evening',
+  ];
   const frMatches = frSignals.filter((token) => normalized.includes(token)).length;
-  return frMatches >= 1 ? 'fr' : 'en';
+  const enMatches = enSignals.filter((token) => normalized.includes(token)).length;
+  return frMatches > enMatches ? 'fr' : 'en';
 }
 
 export function normalizePhone(input: string): string {

@@ -92,6 +92,7 @@ export function isBusinessQuestion(text: string): boolean {
     /company(?:'s)? name/,
     /\bwhat services\b/,
     /\bwhat do you provide\b/,
+    /\bservices? do you offer\b/,
     /\bopening hours\b/,
     /\bwhen are you open\b/,
     /\bhow much\b/,
@@ -99,6 +100,15 @@ export function isBusinessQuestion(text: string): boolean {
     /\bcost\b/,
     /\bwhere are you located\b/,
     /\bservice area\b/,
+    /\bquels services\b/,
+    /\bque proposez[- ]vous\b/,
+    /\bque faites[- ]vous\b/,
+    /\bhoraires\b/,
+    /\bquand etes[- ]vous ouverts\b/,
+    /\bquand êtes[- ]vous ouverts\b/,
+    /\bprix\b/,
+    /\bcombien\b/,
+    /\bzone d['’]intervention\b/,
   ].some((pattern) => pattern.test(normalized));
 }
 

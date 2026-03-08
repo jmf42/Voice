@@ -69,6 +69,162 @@ function buildKnowledgeInstruction(
   return parts.join(' ');
 }
 
+function tokenizeSearchText(value: string): string[] {
+  const stopwords = new Set([
+    'the',
+    'and',
+    'for',
+    'with',
+    'that',
+    'this',
+    'you',
+    'your',
+    'are',
+    'can',
+    'what',
+    'how',
+    'que',
+    'quoi',
+    'vous',
+    'avec',
+    'pour',
+    'les',
+    'des',
+    'une',
+    'est',
+    'sur',
+    'dans',
+  ]);
+  return normalizeSearchText(value)
+    .split(/[^a-z0-9àâçéèêëîïôûùüÿñæœ]+/i)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopwords.has(token));
+}
+
+function joinNaturalLanguage(items: string[], language: 'en' | 'fr'): string {
+  if (items.length <= 1) return items[0] ?? '';
+  if (items.length === 2) {
+    return language === 'fr' ? `${items[0]} et ${items[1]}` : `${items[0]} and ${items[1]}`;
+  }
+  const head = items.slice(0, -1).join(', ');
+  const tail = items[items.length - 1];
+  return language === 'fr' ? `${head} et ${tail}` : `${head}, and ${tail}`;
+}
+
+function firstBusinessSentence(value?: string): string | undefined {
+  const compact = compactText(value);
+  if (!compact) return undefined;
+  const sentence = compact.split(/(?<=[.!?])\s+/)[0]?.trim();
+  return sentence || compact;
+}
+
+function pickFaqAnswer(
+  text: string,
+  settings: Pick<TenantSettingsRecord, 'faqs'>,
+): string | undefined {
+  const userTokens = new Set(tokenizeSearchText(text));
+  if (userTokens.size === 0) return undefined;
+
+  let bestMatch: { answer: string; score: number } | undefined;
+  for (const faq of settings.faqs) {
+    const answer = compactText(faq.answer);
+    if (!answer) continue;
+
+    const faqTokens = tokenizeSearchText(faq.question);
+    if (faqTokens.length === 0) continue;
+
+    const score = faqTokens.reduce((total, token) => total + (userTokens.has(token) ? 1 : 0), 0);
+    if (score < 2) continue;
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = { answer, score };
+    }
+  }
+
+  return bestMatch?.score ? bestMatch.answer : undefined;
+}
+
+export function answerBusinessQuestionFromSettings(args: {
+  text: string;
+  language: 'en' | 'fr';
+  settings: Pick<
+    TenantSettingsRecord,
+    'business_name' | 'business_context' | 'services' | 'faqs' | 'opening_hours'
+  >;
+}): string | undefined {
+  const normalized = normalizeSearchText(args.text);
+  const faqAnswer = pickFaqAnswer(args.text, args.settings);
+  if (faqAnswer) return faqAnswer;
+
+  if (/company(?:'s)? name|nom (?:de )?l'?entreprise|nom de la societe|nom de la société/.test(normalized)) {
+    return args.language === 'fr'
+      ? `Vous êtes bien chez ${args.settings.business_name}.`
+      : `You’ve reached ${args.settings.business_name}.`;
+  }
+
+  if (
+    /\bwhat services\b|\bwhat do you provide\b|\bservices? do you offer\b|quels services|que proposez[- ]vous|que faites[- ]vous/.test(
+      normalized,
+    )
+  ) {
+    const serviceNames = args.settings.services
+      .map((service) => compactText(service.name))
+      .filter(Boolean)
+      .slice(0, 4);
+    if (serviceNames.length > 0) {
+      return args.language === 'fr'
+        ? `Nous proposons ${joinNaturalLanguage(serviceNames, 'fr')}.`
+        : `We provide ${joinNaturalLanguage(serviceNames, 'en')}.`;
+    }
+  }
+
+  if (
+    /\bopening hours\b|\bwhen are you open\b|\bhours\b|horaires|quand etes-vous ouverts|quand êtes-vous ouverts/.test(
+      normalized,
+    )
+  ) {
+    const hours = Object.entries(args.settings.opening_hours)
+      .map(([day, value]) => `${day}: ${compactText(value)}`)
+      .filter((entry) => !entry.endsWith(':'));
+    if (hours.length > 0) {
+      return args.language === 'fr'
+        ? `Nos horaires sont ${hours.join('; ')}.`
+        : `Our opening hours are ${hours.join('; ')}.`;
+    }
+  }
+
+  if (/\bprice\b|\bcost\b|\bhow much\b|prix|combien|tarif/.test(normalized)) {
+    const pricedServices = args.settings.services
+      .map((service) => {
+        const name = compactText(service.name);
+        const price = compactText(service.price);
+        return name && price ? `${name}: ${price}` : '';
+      })
+      .filter(Boolean)
+      .slice(0, 3);
+    if (pricedServices.length > 0) {
+      return args.language === 'fr'
+        ? `Voici les tarifs enregistrés: ${joinNaturalLanguage(pricedServices, 'fr')}.`
+        : `Here are the saved prices: ${joinNaturalLanguage(pricedServices, 'en')}.`;
+    }
+    return args.language === 'fr'
+      ? 'Je peux transmettre votre demande, et l’équipe confirmera le tarif exact.'
+      : 'I can note your request, and the team will confirm the exact price.';
+  }
+
+  if (
+    /\bwhere are you located\b|\bservice area\b|\bwhere do you work\b|ou etes-vous situes|où êtes-vous situés|zone d'intervention|zone d’intervention/.test(
+      normalized,
+    )
+  ) {
+    const businessSentence = firstBusinessSentence(args.settings.business_context);
+    if (businessSentence) {
+      return businessSentence;
+    }
+  }
+
+  return undefined;
+}
+
 function inferServiceHint(
   issueText: string,
   settings: Pick<TenantSettingsRecord, 'services'>,
@@ -147,7 +303,12 @@ export class ClassificationService {
     if (!this.client) return isUrgentText(text);
 
     try {
-      const prompt = `Classify as urgent or normal for plumbing/heating dispatch. Input: ${text}`;
+      const prompt = [
+        'Classify this local-service caller request as urgent or normal.',
+        'Urgent means immediate safety risk, active damage, lockout/access emergency, or something requiring very fast callback.',
+        'Do not mark it urgent only because details are missing.',
+        `Input: ${text}`,
+      ].join(' ');
       const response = await this.client.responses.create({
         model: this.model,
         input: prompt,
@@ -238,11 +399,14 @@ export class RealtimeConversationService {
       'Keep responses concise and natural for live phone calls.',
       'Use at most one short sentence plus one short follow-up question.',
       'Ask one follow-up question when information is missing.',
+      'Twilio already greeted the caller, so do not greet again unless the caller restarts the conversation later.',
       'Do not repeat details the caller already confirmed unless you are correcting a conflict.',
+      'Do not treat missing details as an emergency.',
+      'Do not say a booking is confirmed unless the system says the requested slot is available.',
       `For urgent non-life-safety issues, promise callback in ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
       'For life-safety risk, instruct caller to contact emergency services immediately.',
       'If asked a business-specific question, answer from business context first. If context is missing, say you will pass to the team.',
-      'Do not start dispatch intake unless the caller clearly asks for service help right now.',
+      'If the caller is only asking for business information, answer directly and do not force dispatch intake.',
     ].join(' ');
 
     const ws = new WebSocket(url, {
@@ -413,15 +577,32 @@ export class RealtimeConversationService {
     transcript: Array<{ role: 'user' | 'assistant'; text: string }>;
     userText: string;
     responseInstruction?: string;
+    currentLanguage?: 'en' | 'fr';
+    directAnswer?: string;
   }): Promise<string> {
     if (!this.client) {
-      return 'Thanks, I understood your request. I can help you with issue details, address, timing, and urgent escalation if needed.';
+      const currentLanguage = args.currentLanguage ?? (args.languages.includes('fr') ? 'fr' : 'en');
+      const nextQuestion = args.responseInstruction?.match(/->\s*(.+)$/)?.[1]?.trim();
+      if (args.directAnswer?.trim() && nextQuestion) {
+        return `${args.directAnswer.trim()} ${nextQuestion}`;
+      }
+      if (args.directAnswer?.trim()) {
+        return args.directAnswer.trim();
+      }
+      if (nextQuestion) return nextQuestion;
+      if (args.responseInstruction?.includes('close unless the caller asks')) {
+        return currentLanguage === 'fr'
+          ? "Merci, j'ai bien noté votre demande. L'équipe vous confirmera la suite rapidement."
+          : 'Thanks, I have your request. The team will confirm the next step shortly.';
+      }
+      return currentLanguage === 'fr'
+        ? 'Pouvez-vous le redire en une phrase courte ?'
+        : 'Could you repeat that in one short sentence?';
     }
 
-    const recentTurns = args.transcript
-      .slice(-8)
-      .map((turn) => `${turn.role}: ${turn.text}`)
-      .join('\n');
+    const currentLanguage =
+      args.currentLanguage ??
+      (args.languages.includes('fr') && !args.languages.includes('en') ? 'fr' : 'en');
     const languageHint =
       args.languages.includes('fr') && args.languages.includes('en')
         ? 'French or English'
@@ -446,9 +627,13 @@ export class RealtimeConversationService {
                 args.knowledgeInstruction || 'No extra business policy context was provided.',
                 `Supported language: ${languageHint}.`,
                 languageRule,
+                `Current caller language for this turn: ${currentLanguage === 'fr' ? 'French' : 'English'}.`,
                 `Keep responses concise (max 2 short sentences).`,
                 'Use at most one short answer and one short follow-up question.',
+                'Twilio already greeted the caller, so do not greet again unless the caller restarts the conversation later.',
                 'Do not repeat details the caller already confirmed unless you need to correct a conflict.',
+                'Do not treat missing booking details as an emergency.',
+                'Do not say the requested time is booked unless the system says the slot is available.',
                 'If life-safety risk (gas leak, fire, flooding, injury), tell the caller to contact emergency services immediately.',
                 `If urgent but non-life-safety, promise callback within ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
                 'If the caller asks only a business-information question, answer it directly and do not begin intake yet.',
@@ -461,17 +646,16 @@ export class RealtimeConversationService {
             },
           ],
         },
+        ...args.transcript.slice(-6).map((turn) => ({
+          role: turn.role,
+          content: [{ type: 'input_text' as const, text: turn.text }],
+        })),
         {
           role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: `Recent transcript:\n${recentTurns}\n\nLatest caller utterance: ${args.userText}`,
-            },
-          ],
+          content: [{ type: 'input_text', text: args.userText }],
         },
       ],
-      max_output_tokens: 120,
+      max_output_tokens: 90,
     });
 
     return response.output_text.trim() || 'Could you please repeat that in one sentence?';

@@ -26,6 +26,7 @@ import {
   ClassificationService,
   RealtimeConversationService,
   SmsService,
+  answerBusinessQuestionFromSettings,
   buildKnowledgeInstruction,
   twimlConversationRelay,
   buildQualifiedJobDraft,
@@ -85,6 +86,7 @@ interface RealtimeIntakeState {
   addressConfirmed: boolean;
   preferredTimeWindow?: TimeWindow;
   requestedSchedule?: RequestedSchedule;
+  requestedScheduleAvailability?: 'available' | 'unavailable';
   phoneConfirmed?: string;
   urgent: boolean;
 }
@@ -139,6 +141,16 @@ function humanRequest(text: string): boolean {
     "parler a quelqu'un",
     'parler a quelquun',
   ].some((token) => normalized.includes(token));
+}
+
+function hasActiveRealtimeServiceNeed(state: RealtimeIntakeState): boolean {
+  return Boolean(
+    state.issueText ||
+      state.addressRaw ||
+      state.preferredTimeWindow ||
+      state.requestedSchedule ||
+      state.phoneConfirmed,
+  );
 }
 
 function normalizeWebsiteUrl(value: string): string {
@@ -768,6 +780,7 @@ export function createApp(deps?: {
     const requestedSchedule = extractRequestedSchedule(normalized, { now: new Date() });
     if (requestedSchedule) {
       state.requestedSchedule = requestedSchedule;
+      state.requestedScheduleAvailability = undefined;
     }
 
     if (containsTimeWindowHint(normalized)) {
@@ -824,7 +837,9 @@ export function createApp(deps?: {
     const capturedTimeWindow =
       intakeState?.preferredTimeWindow ?? inferredTimeWindow ?? call.preferredTimeWindow;
     const requestedSchedule =
-      intakeState?.requestedSchedule ??
+      intakeState?.requestedScheduleAvailability === 'unavailable'
+        ? undefined
+        : intakeState?.requestedSchedule ??
       [...callerTurns]
         .reverse()
         .map((turn) => extractRequestedSchedule(turn, { now: call.createdAt }))
@@ -833,17 +848,12 @@ export function createApp(deps?: {
       intakeState?.phoneConfirmed ??
       call.phoneConfirmed ??
       (call.callerPhone !== 'unknown' ? call.callerPhone : undefined);
-    const hasCoreDetails =
-      Boolean(capturedIssueText?.trim()) &&
-      Boolean(inferredAddress && inferredAddress.trim().length >= 8) &&
-      Boolean(capturedTimeWindow) &&
-      Boolean(phoneConfirmed && /\d{7,}/.test(phoneConfirmed));
+    const hasServiceIntent = Boolean(capturedIssueText?.trim());
     const urgent =
       args.forceUrgent ||
       intakeState?.urgent ||
-      !hasCoreDetails ||
-      (await classifier.isUrgent(fullCallerText));
-    const issueText = capturedIssueText ?? 'Customer called for service request';
+      (hasServiceIntent && (await classifier.isUrgent(fullCallerText)));
+    const issueText = capturedIssueText ?? 'Information request only';
     const preferredTimeWindow = capturedTimeWindow ?? 'specific';
 
     const updated = await store.updateCall(call.id, {
@@ -873,6 +883,7 @@ export function createApp(deps?: {
       urgent,
       jobDraft: draft,
       requestedSchedule,
+      skipAutoBooking: intakeState?.requestedScheduleAvailability === 'unavailable',
     });
   }
 
@@ -968,6 +979,7 @@ export function createApp(deps?: {
     urgent: boolean;
     jobDraft: Record<string, unknown>;
     requestedSchedule?: RequestedSchedule;
+    skipAutoBooking?: boolean;
   }) {
     const finalized = await store.finalizeCall({
       callId: args.callId,
@@ -981,7 +993,17 @@ export function createApp(deps?: {
         const calendarConnection = await store.getCalendarConnection(finalized.call.tenantId);
         if (calendarConnection) {
           try {
-            if (args.requestedSchedule) {
+            if (args.skipAutoBooking) {
+              finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
+                booking_status: 'manual_required',
+              });
+              await store.addAudit(
+                finalized.call.tenantId,
+                'AUTO_BOOKING_SKIPPED',
+                { reason: 'requested_slot_unavailable' },
+                { callId: finalized.call.id, jobId: finalJob.id },
+              );
+            } else if (args.requestedSchedule) {
               const available = await calendarService.isSlotAvailable({
                 connection: calendarConnection,
                 slotStart: args.requestedSchedule.slotStart,
@@ -1350,6 +1372,14 @@ export function createApp(deps?: {
                   : 'en-US';
               const transcript = addRealtimeTurn(callSid, { role: 'user', text: userText });
               const intakeState = await captureRealtimeUserTurn(callSid, userText);
+              const callerNeedsService = hasActiveRealtimeServiceNeed(intakeState);
+              const directBusinessAnswer = isBusinessQuestion(userText)
+                ? answerBusinessQuestionFromSettings({
+                    text: userText,
+                    language: detectedLanguage,
+                    settings,
+                  })
+                : undefined;
 
               if (intakeState.urgent && !transferRequested) {
                 transferRequested = true;
@@ -1390,14 +1420,52 @@ export function createApp(deps?: {
               }
 
               const missingQuestion = nextMissingRealtimeQuestion(intakeState);
-              const businessQuestion = isBusinessQuestion(userText);
-              const responseInstruction = businessQuestion
-                ? missingQuestion
-                  ? `Caller intent: this is a business-information question. Answer it directly from the saved business context first. Then ask exactly one short follow-up question to continue intake: ${missingQuestion}`
-                  : 'Caller intent: this is a business-information question. Answer it directly from the saved business context in one short sentence. Do not invent policies.'
-                : missingQuestion
-                  ? `Intake progress: ask this next to complete dispatch details -> ${missingQuestion}`
-                  : 'Intake progress: issue, address, preferred time, and callback number are captured. Briefly confirm and close unless the caller asks for something else.';
+              if (directBusinessAnswer && !callerNeedsService) {
+                addRealtimeTurn(callSid, { role: 'assistant', text: directBusinessAnswer });
+                sendRealtimeText(directBusinessAnswer, true);
+                return;
+              }
+
+              if (
+                intakeState.requestedSchedule &&
+                intakeState.issueText &&
+                intakeState.addressRaw &&
+                intakeState.phoneConfirmed &&
+                !missingQuestion
+              ) {
+                const calendarConnection = settings.calendar_enabled
+                  ? await store.getCalendarConnection(params.tenantId)
+                  : undefined;
+                if (calendarConnection) {
+                  try {
+                    const slotAvailable = await calendarService.isSlotAvailable({
+                      connection: calendarConnection,
+                      slotStart: intakeState.requestedSchedule.slotStart,
+                      slotEnd: intakeState.requestedSchedule.slotEnd,
+                    });
+                    intakeState.requestedScheduleAvailability = slotAvailable
+                      ? 'available'
+                      : 'unavailable';
+                  } catch {
+                    intakeState.requestedScheduleAvailability = undefined;
+                  }
+                }
+              }
+
+              let responseInstruction: string;
+              if (directBusinessAnswer && callerNeedsService) {
+                responseInstruction = missingQuestion
+                  ? `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. Answer the caller's business question first using this exact information: ${directBusinessAnswer} Then ask exactly this next intake question: ${missingQuestion}`
+                  : `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. Answer the caller's business question first using this exact information: ${directBusinessAnswer} Then briefly confirm the service request and close unless the caller asks for something else.`;
+              } else if (intakeState.requestedScheduleAvailability === 'unavailable') {
+                responseInstruction = `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. The caller's requested slot is not available. Briefly say that exact time is unavailable and ask for another specific time.`;
+              } else if (intakeState.requestedScheduleAvailability === 'available' && !missingQuestion) {
+                responseInstruction = `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. The caller's exact requested time is available. Briefly confirm that the requested time can be booked and say the team will send confirmation shortly. Do not ask another question unless the caller asks for something else.`;
+              } else if (missingQuestion) {
+                responseInstruction = `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. Intake progress: ask this next question -> ${missingQuestion}`;
+              } else {
+                responseInstruction = `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. Intake progress: issue, address, preferred time, and callback number are captured. Briefly confirm and close unless the caller asks for something else.`;
+              }
 
               if (realtimeSession) {
                 if (realtimeSession.isConnected()) {
@@ -1421,6 +1489,8 @@ export function createApp(deps?: {
                 transcript,
                 userText,
                 responseInstruction,
+                currentLanguage: detectedLanguage,
+                directAnswer: directBusinessAnswer,
               });
               addRealtimeTurn(callSid, { role: 'assistant', text: answer });
               sendRealtimeText(answer, true);

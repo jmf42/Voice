@@ -320,7 +320,13 @@ describe('api', () => {
         });
       });
 
-      let items: Array<{ id: string; status: string; urgency: string; address_raw: string }> = [];
+      let items: Array<{
+        id: string;
+        status: string;
+        urgency: string;
+        address_raw: string;
+        booking_status?: string;
+      }> = [];
       for (let i = 0; i < 12; i += 1) {
         const jobs = await app.inject({ method: 'GET', url: '/v1/jobs', headers: authHeader });
         expect(jobs.statusCode).toBe(200);
@@ -335,9 +341,10 @@ describe('api', () => {
       }
 
       expect(items.length).toBeGreaterThan(0);
-      expect(items[0]?.status).toBe('urgent');
-      expect(items[0]?.urgency).toBe('urgent');
+      expect(items[0]?.status).toBe('new');
+      expect(items[0]?.urgency).toBe('normal');
       expect(items[0]?.address_raw).toContain('Address pending confirmation');
+      expect(items[0]?.booking_status).toBe('not_requested');
     } finally {
       await app.close();
       if (prevMode === undefined) {
@@ -352,6 +359,226 @@ describe('api', () => {
       }
     }
   });
+
+  it('answers English business questions from saved settings without forcing intake', async () => {
+    const prevMode = process.env.VOICE_FLOW_MODE;
+    const prevBaseUrl = process.env.API_BASE_URL;
+    process.env.VOICE_FLOW_MODE = 'realtime';
+    const freePort = await new Promise<number>((resolve, reject) => {
+      const server = createServer();
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        const port = typeof address === 'object' && address ? Number(address.port) : 4103;
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve(port);
+        });
+      });
+    });
+    process.env.API_BASE_URL = `http://127.0.0.1:${freePort}`;
+
+    const store = new InMemoryStore();
+    await store.patchTenantSettings('demo-tenant', {
+      business_name: 'Locksmith Geneva',
+      business_context: 'Emergency locksmith in Geneva with rapid door opening support.',
+      services: [
+        { name: 'Emergency Door Opening', description: 'Fast entry help for locked-out customers.' },
+        { name: 'Lock Replacement', description: 'Replace damaged or unsafe locks.' },
+      ],
+      faqs: [{ question: 'Can you open my door without damage?', answer: 'Yes, in most cases.' }],
+      languages: ['fr', 'en'],
+    });
+
+    const app = createApp({ store });
+    await app.listen({ host: '127.0.0.1', port: freePort });
+    try {
+      const inbound = await app.inject({
+        method: 'POST',
+        url: '/v1/telephony/inbound/demo-tenant',
+        payload: 'CallSid=CA-REALTIME-BIZ-INFO-EN&From=%2B4179000020',
+        headers: formHeaders,
+      });
+      expect(inbound.statusCode).toBe(200);
+
+      const match = inbound.body.match(/url="([^"]+)"/);
+      expect(match?.[1]).toBeTruthy();
+      const url = (match?.[1] ?? '').replaceAll('&amp;', '&');
+      const realtimeReplies: Array<{ token: string; lang?: string; last: boolean }> = [];
+
+      await new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(url);
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Timed out waiting for realtime websocket responses'));
+        }, 4000);
+
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'setup' }));
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: 'What services do you provide?',
+            }),
+          );
+          setTimeout(() => ws.close(), 250);
+        });
+
+        ws.on('error', (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+
+        ws.on('message', (raw) => {
+          const payload = JSON.parse(raw.toString()) as {
+            type?: string;
+            token?: string;
+            lang?: string;
+            last?: boolean;
+          };
+          if (payload.type === 'text') {
+            realtimeReplies.push({
+              token: payload.token ?? '',
+              lang: payload.lang,
+              last: Boolean(payload.last),
+            });
+          }
+        });
+
+        ws.on('close', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      const replyText = realtimeReplies.map((reply) => reply.token).join(' ');
+      expect(replyText).toContain('Emergency Door Opening');
+      expect(replyText).toContain('Lock Replacement');
+      expect(replyText.toLowerCase()).not.toContain('address');
+      expect(realtimeReplies.some((reply) => reply.lang === 'en-US')).toBe(true);
+    } finally {
+      await app.close();
+      if (prevMode === undefined) {
+        delete process.env.VOICE_FLOW_MODE;
+      } else {
+        process.env.VOICE_FLOW_MODE = prevMode;
+      }
+      if (prevBaseUrl === undefined) {
+        delete process.env.API_BASE_URL;
+      } else {
+        process.env.API_BASE_URL = prevBaseUrl;
+      }
+    }
+  }, 12_000);
+
+  it('answers French business questions in French from saved settings', async () => {
+    const prevMode = process.env.VOICE_FLOW_MODE;
+    const prevBaseUrl = process.env.API_BASE_URL;
+    process.env.VOICE_FLOW_MODE = 'realtime';
+    const freePort = await new Promise<number>((resolve, reject) => {
+      const server = createServer();
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        const port = typeof address === 'object' && address ? Number(address.port) : 4104;
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve(port);
+        });
+      });
+    });
+    process.env.API_BASE_URL = `http://127.0.0.1:${freePort}`;
+
+    const store = new InMemoryStore();
+    await store.patchTenantSettings('demo-tenant', {
+      business_name: 'Locksmith Geneva',
+      services: [
+        { name: 'Ouverture de porte', description: 'Aide rapide pour porte claquée.' },
+        { name: 'Remplacement de serrure', description: 'Remplacement de serrure abîmée.' },
+      ],
+      languages: ['fr', 'en'],
+    });
+
+    const app = createApp({ store });
+    await app.listen({ host: '127.0.0.1', port: freePort });
+    try {
+      const inbound = await app.inject({
+        method: 'POST',
+        url: '/v1/telephony/inbound/demo-tenant',
+        payload: 'CallSid=CA-REALTIME-BIZ-INFO-FR&From=%2B4179000020',
+        headers: formHeaders,
+      });
+      expect(inbound.statusCode).toBe(200);
+
+      const match = inbound.body.match(/url="([^"]+)"/);
+      expect(match?.[1]).toBeTruthy();
+      const url = (match?.[1] ?? '').replaceAll('&amp;', '&');
+      const realtimeReplies: Array<{ token: string; lang?: string; last: boolean }> = [];
+
+      await new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(url);
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Timed out waiting for realtime websocket responses'));
+        }, 4000);
+
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'setup' }));
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: 'Quels services proposez-vous ?',
+              lang: 'fr-FR',
+            }),
+          );
+          setTimeout(() => ws.close(), 250);
+        });
+
+        ws.on('error', (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+
+        ws.on('message', (raw) => {
+          const payload = JSON.parse(raw.toString()) as {
+            type?: string;
+            token?: string;
+            lang?: string;
+            last?: boolean;
+          };
+          if (payload.type === 'text') {
+            realtimeReplies.push({
+              token: payload.token ?? '',
+              lang: payload.lang,
+              last: Boolean(payload.last),
+            });
+          }
+        });
+
+        ws.on('close', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      const replyText = realtimeReplies.map((reply) => reply.token).join(' ');
+      expect(replyText).toContain('Ouverture de porte');
+      expect(replyText).toContain('Remplacement de serrure');
+      expect(realtimeReplies.some((reply) => reply.lang === 'fr-FR')).toBe(true);
+    } finally {
+      await app.close();
+      if (prevMode === undefined) {
+        delete process.env.VOICE_FLOW_MODE;
+      } else {
+        process.env.VOICE_FLOW_MODE = prevMode;
+      }
+      if (prevBaseUrl === undefined) {
+        delete process.env.API_BASE_URL;
+      } else {
+        process.env.API_BASE_URL = prevBaseUrl;
+      }
+    }
+  }, 12_000);
 
   it('rejects realtime websocket when signature is invalid', async () => {
     const prevMode = process.env.VOICE_FLOW_MODE;
