@@ -264,7 +264,8 @@ function inferServiceHint(
 
 function extractJobSummarySource(call: CallRecord): string {
   const prioritized: string[] = [];
-  const transcriptIssues = call.transcript
+  const callerTranscriptIssues = call.transcript
+    .filter((line) => !/^\[realtime:assistant\]/i.test(line))
     .map((line) => line.replace(/^\[[^\]]+\]\s*/, '').trim())
     .filter(Boolean)
     .filter((line) => shouldCaptureIssueText(line));
@@ -273,11 +274,12 @@ function extractJobSummarySource(call: CallRecord): string {
     prioritized.push(compactText(call.issueText));
   }
 
-  prioritized.push(...transcriptIssues);
+  prioritized.push(...callerTranscriptIssues);
   const merged = prioritized.filter(Boolean).join(' ').trim();
   if (merged) return merged;
 
   return call.transcript
+    .filter((line) => !/^\[realtime:assistant\]/i.test(line))
     .map((line) => line.replace(/^\[[^\]]+\]\s*/, '').trim())
     .filter(Boolean)
     .join(' ')
@@ -1048,20 +1050,32 @@ export function twimlConversationRelay(args: {
   welcomeGreeting?: string;
   defaultLanguage: 'en' | 'fr';
   supportedLanguages: Array<'en' | 'fr'>;
+  hints?: string[];
 }): string {
   const response = new twilio.twiml.VoiceResponse();
   const connect = response.connect();
+  const multilingual = [...new Set(args.supportedLanguages)].length > 1;
   const relayOptions: Record<string, string | boolean> = {
     url: args.websocketUrl,
     language: args.defaultLanguage === 'fr' ? 'fr-FR' : 'en-US',
     ttsProvider: 'Google',
     voice: args.defaultLanguage === 'fr' ? 'fr-FR-Neural2-B' : 'en-US-Journey-O',
+    transcriptionProvider: 'Deepgram',
+    speechModel: 'nova-3-general',
+    transcriptionLanguage: multilingual
+      ? 'multi'
+      : args.defaultLanguage === 'fr'
+        ? 'fr'
+        : 'en',
     interruptible: 'speech',
     interruptSensitivity: 'low',
     preemptible: false,
     reportInputDuringAgentSpeech: 'none',
     welcomeGreetingInterruptible: 'none',
   };
+  if (args.hints?.length) {
+    relayOptions.hints = args.hints.slice(0, 25).join(',');
+  }
   if (args.welcomeGreeting) {
     relayOptions.welcomeGreeting = args.welcomeGreeting;
   }

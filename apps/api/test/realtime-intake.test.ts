@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractRequestedSchedule,
   isBusinessQuestion,
+  isSmallTalkText,
   shouldCaptureIssueText,
 } from '../src/realtime-intake.js';
 
@@ -25,5 +26,11 @@ describe('realtime intake helpers', () => {
       slotEnd: '2026-03-08T21:00:00.000Z',
       label: 'tomorrow at 9:00 PM',
     });
+  });
+
+  it('does not treat small talk as the service issue', () => {
+    expect(isSmallTalkText('Good morning. How are you?')).toBe(true);
+    expect(shouldCaptureIssueText('Good morning. How are you?')).toBe(false);
+    expect(shouldCaptureIssueText('I need a lock replacement tonight.')).toBe(true);
   });
 });
