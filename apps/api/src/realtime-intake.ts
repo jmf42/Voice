@@ -112,10 +112,25 @@ export function isBusinessQuestion(text: string): boolean {
   ].some((pattern) => pattern.test(normalized));
 }
 
+export function isSmallTalkText(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+
+  return [
+    /^(hello|hi|hey|bonjour|bonsoir|salut)\b/,
+    /\bgood (morning|afternoon|evening)\b/,
+    /\bhow are you\b/,
+    /\bhow's it going\b/,
+    /\bça va\b/,
+    /\bcomment ca va\b/,
+    /\bcomment ça va\b/,
+    /^(thanks|thank you|merci|no problem|pas de souci|d'accord|okay|ok)\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 export function shouldCaptureIssueText(text: string): boolean {
   const normalized = text.trim();
   if (normalized.length < 8) return false;
-  if (/^(hello|hi|bonjour|bonsoir|hey)\b/i.test(normalized)) return false;
+  if (isSmallTalkText(normalized)) return false;
   if (isBusinessQuestion(normalized)) return false;
   if (/^\+?[0-9][0-9\s()-]{7,}$/.test(normalized)) return false;
   return true;

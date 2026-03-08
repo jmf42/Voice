@@ -730,8 +730,10 @@ export class SmsService {
 
 export class CalendarService {
   private readonly oauthClient?: InstanceType<typeof google.auth.OAuth2>;
+  private readonly allowDemoMode: boolean;
 
   constructor(args?: { clientId?: string; clientSecret?: string; redirectUri?: string }) {
+    this.allowDemoMode = process.env.NODE_ENV === 'test' || process.env.ALLOW_DEMO_CALENDAR === 'true';
     if (args?.clientId && args?.clientSecret && args?.redirectUri) {
       this.oauthClient = new google.auth.OAuth2(args.clientId, args.clientSecret, args.redirectUri);
     }
@@ -797,6 +799,9 @@ export class CalendarService {
     tenantId: string;
   }> {
     if (!this.oauthClient) {
+      if (!this.allowDemoMode) {
+        throw new Error('Google Calendar is not configured on this server.');
+      }
       return {
         refreshToken: code || 'demo-refresh-token',
         accessToken: 'demo-access-token',
@@ -887,6 +892,7 @@ export class CalendarService {
     });
 
     if (!this.oauthClient) {
+      if (!this.allowDemoMode) return [];
       return candidates.slice(0, count);
     }
 
@@ -931,7 +937,7 @@ export class CalendarService {
     slotStart: string;
     slotEnd: string;
   }): Promise<boolean> {
-    if (!this.oauthClient) return true;
+    if (!this.oauthClient) return this.allowDemoMode;
 
     this.oauthClient.setCredentials({
       refresh_token: args.connection.refreshToken,
@@ -968,6 +974,9 @@ export class CalendarService {
     connection: CalendarConnection;
   }): Promise<{ externalEventId: string }> {
     if (!this.oauthClient) {
+      if (!this.allowDemoMode) {
+        throw new Error('Google Calendar is not configured on this server.');
+      }
       return { externalEventId: `evt_${args.job.id}_${args.slotStart}` };
     }
 

@@ -24,10 +24,8 @@ import { PrismaStore } from './store-prisma.js';
 import {
   CalendarService,
   ClassificationService,
-  RealtimeConversationService,
   SmsService,
   answerBusinessQuestionFromSettings,
-  buildKnowledgeInstruction,
   twimlConversationRelay,
   buildQualifiedJobDraft,
   twimlGatherPrompt,
@@ -40,6 +38,7 @@ import {
   extractRequestedSchedule,
   inferTimeWindowFromText,
   isBusinessQuestion,
+  isSmallTalkText,
   shouldCaptureIssueText,
   type RequestedSchedule,
 } from './realtime-intake.js';
@@ -89,6 +88,7 @@ interface RealtimeIntakeState {
   requestedScheduleAvailability?: 'available' | 'unavailable';
   phoneConfirmed?: string;
   urgent: boolean;
+  urgentPendingConfirmation?: boolean;
 }
 
 interface RealtimeSocket {
@@ -148,9 +148,114 @@ function hasActiveRealtimeServiceNeed(state: RealtimeIntakeState): boolean {
     state.issueText ||
       state.addressRaw ||
       state.preferredTimeWindow ||
-      state.requestedSchedule ||
-      state.phoneConfirmed,
+      state.requestedSchedule,
   );
+}
+
+function cloneRealtimeState(state?: RealtimeIntakeState): RealtimeIntakeState | undefined {
+  return state
+    ? {
+        issueText: state.issueText,
+        addressRaw: state.addressRaw,
+        addressConfirmed: state.addressConfirmed,
+        preferredTimeWindow: state.preferredTimeWindow,
+        requestedSchedule: state.requestedSchedule,
+        requestedScheduleAvailability: state.requestedScheduleAvailability,
+        phoneConfirmed: state.phoneConfirmed,
+        urgent: state.urgent,
+        urgentPendingConfirmation: state.urgentPendingConfirmation,
+      }
+    : undefined;
+}
+
+function normalizeRealtimeSpeech(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function looksLikeAssistantEcho(userText: string, lastAssistantText?: string): boolean {
+  if (!lastAssistantText) return false;
+
+  const normalizedUser = normalizeRealtimeSpeech(userText);
+  const normalizedAssistant = normalizeRealtimeSpeech(lastAssistantText);
+  if (normalizedUser.length < 8 || normalizedAssistant.length < 8) return false;
+  if (normalizedAssistant.includes(normalizedUser)) return true;
+
+  const userTokens = normalizedUser.split(' ').filter((token) => token.length >= 4);
+  if (userTokens.length < 2) return false;
+  const overlap = userTokens.filter((token) => normalizedAssistant.includes(token)).length;
+  return overlap >= Math.min(userTokens.length, 3);
+}
+
+function localizedRealtimeText(language: 'en' | 'fr', english: string, french: string): string {
+  return language === 'fr' ? french : english;
+}
+
+function nextMissingRealtimeQuestion(
+  state: RealtimeIntakeState,
+  language: 'en' | 'fr' = 'en',
+): string | null {
+  if (!state.issueText) {
+    return localizedRealtimeText(
+      language,
+      'What do you need help with today?',
+      "De quoi avez-vous besoin aujourd'hui ?",
+    );
+  }
+  if (state.urgentPendingConfirmation) {
+    return localizedRealtimeText(
+      language,
+      'Just to confirm, do you need the on-call team right now?',
+      "Juste pour confirmer, avez-vous besoin de l'équipe d'urgence tout de suite ?",
+    );
+  }
+  if (!state.addressRaw) {
+    return localizedRealtimeText(
+      language,
+      'What is the full service address?',
+      "Quelle est l'adresse complète ?",
+    );
+  }
+  if (!state.preferredTimeWindow) {
+    return localizedRealtimeText(
+      language,
+      'What time works best for you?',
+      'Quel horaire vous convient le mieux ?',
+    );
+  }
+  if (!state.phoneConfirmed) {
+    return localizedRealtimeText(
+      language,
+      'What number should we use for confirmation?',
+      'Quel numéro devons-nous utiliser pour la confirmation ?',
+    );
+  }
+  return null;
+}
+
+function buildRealtimeAcknowledgement(
+  language: 'en' | 'fr',
+  args: { previousState?: RealtimeIntakeState; state: RealtimeIntakeState },
+): string | undefined {
+  const previous = args.previousState;
+  const current = args.state;
+
+  if (!previous?.issueText && current.issueText) {
+    return localizedRealtimeText(language, 'Got it.', "D'accord.");
+  }
+  if (!previous?.addressRaw && current.addressRaw) {
+    return localizedRealtimeText(language, 'Thanks.', 'Merci.');
+  }
+  if (!previous?.preferredTimeWindow && current.preferredTimeWindow) {
+    return localizedRealtimeText(language, 'Perfect.', 'Parfait.');
+  }
+  if (!previous?.phoneConfirmed && current.phoneConfirmed) {
+    return localizedRealtimeText(language, 'Thanks.', 'Merci.');
+  }
+  return undefined;
 }
 
 function normalizeWebsiteUrl(value: string): string {
@@ -567,11 +672,6 @@ export function createApp(deps?: {
   }
   const classifier =
     deps?.classifier ?? new ClassificationService(env.OPENAI_API_KEY, env.OPENAI_MODEL);
-  const realtimeConversation = new RealtimeConversationService(
-    env.OPENAI_API_KEY,
-    env.REALTIME_AGENT_MODEL,
-    env.OPENAI_MODEL,
-  );
   const queue: QueueClient =
     deps?.queue ??
     (useInMemoryQueue ? new InMemoryQueueClient() : new BullQueueClient(env.REDIS_URL));
@@ -619,6 +719,7 @@ export function createApp(deps?: {
   const realtimeTranscriptByCallSid = new Map<string, RealtimeTurn[]>();
   const realtimeStateByCallSid = new Map<string, RealtimeIntakeState>();
   const realtimeLastSeenByCallSid = new Map<string, number>();
+  const realtimeLastAssistantOutputAtByCallSid = new Map<string, number>();
   const jobStreamClientsByTenant = new Map<string, Set<ServerResponse>>();
   const oauthStateTtlMs = 10 * 60 * 1000;
 
@@ -646,6 +747,7 @@ export function createApp(deps?: {
         realtimeLastSeenByCallSid.delete(callSid);
         realtimeTranscriptByCallSid.delete(callSid);
         realtimeStateByCallSid.delete(callSid);
+        realtimeLastAssistantOutputAtByCallSid.delete(callSid);
       }
     }
   }
@@ -750,15 +852,6 @@ export function createApp(deps?: {
     );
   }
 
-  function nextMissingRealtimeQuestion(state: RealtimeIntakeState): string | null {
-    if (!state.issueText) return 'Can you briefly describe the main issue?';
-    if (!state.addressRaw) return 'What is the full service address?';
-    if (!state.preferredTimeWindow)
-      return 'Which time works best: morning, afternoon, evening, or specific?';
-    if (!state.phoneConfirmed) return 'What callback phone number should we use?';
-    return null;
-  }
-
   async function captureRealtimeUserTurn(
     callSid: string,
     userText: string,
@@ -796,7 +889,26 @@ export function createApp(deps?: {
     }
 
     const urgentByKeyword = isUrgentText(normalized) || humanRequest(normalized);
-    state.urgent = state.urgent || urgentByKeyword;
+    if (state.urgentPendingConfirmation) {
+      if (yesIntent(normalized)) {
+        state.urgent = true;
+        state.urgentPendingConfirmation = false;
+      } else if (/\b(no|not urgent|non|pas urgent|ce n['’]est pas urgent)\b/i.test(normalized)) {
+        state.urgentPendingConfirmation = false;
+      }
+    }
+
+    if (!state.urgent && urgentByKeyword) {
+      const lifeSafetyRisk = /\b(fire|smoke|gas leak|flood|flooding|injury|bleeding|danger)\b/i.test(
+        normalized,
+      );
+      if (lifeSafetyRisk || state.issueText) {
+        state.urgentPendingConfirmation = true;
+      } else {
+        state.urgentPendingConfirmation = true;
+      }
+    }
+
     realtimeStateByCallSid.set(callSid, state);
     realtimeLastSeenByCallSid.set(callSid, Date.now());
     return state;
@@ -990,7 +1102,10 @@ export function createApp(deps?: {
     if (finalized.created) {
       let finalJob = finalized.job;
       if (!args.urgent) {
-        const calendarConnection = await store.getCalendarConnection(finalized.call.tenantId);
+        const calendarConnection =
+          (calendarService.isLiveProviderEnabled() || process.env.NODE_ENV === 'test')
+          ? await store.getCalendarConnection(finalized.call.tenantId)
+          : undefined;
         if (calendarConnection) {
           try {
             if (args.skipAutoBooking) {
@@ -1280,10 +1395,8 @@ export function createApp(deps?: {
           });
         }
 
-        let assistantBuffer = '';
         let startedGreeting = false;
         let transferRequested = false;
-        const knowledgeInstruction = buildKnowledgeInstruction(settings);
         const supportedRealtimeLanguages = settings.languages.length
           ? [...new Set(settings.languages)]
           : (['en'] as Array<'fr' | 'en'>);
@@ -1304,32 +1417,16 @@ export function createApp(deps?: {
             }),
           );
         };
-        const realtimeSession = realtimeConversation.createSession({
-          businessName: settings.business_name,
-          knowledgeInstruction,
-          escalationPhone: settings.escalation_phone,
-          callbackSlaMinutes: settings.callback_sla_minutes,
-          languages: settings.languages,
-          onTextDelta: (token) => {
-            assistantBuffer += token;
-            sendRealtimeText(token, false);
-          },
-          onTextDone: () => {
-            if (assistantBuffer.trim()) {
-              addRealtimeTurn(callSid, { role: 'assistant', text: assistantBuffer.trim() });
-            }
-            assistantBuffer = '';
-            sendRealtimeText('', true);
-          },
-          onError: (message) => {
-            app.log.warn({ callSid, message }, 'realtime session warning');
-            if (/Cancellation failed: no active response found/i.test(message)) {
-              return;
-            }
-            sendRealtimeText('Sorry, I had trouble hearing that. Please repeat that.', true);
-          },
-        });
-
+        const sendAssistantMessage = (
+          text: string,
+          lang: 'en-US' | 'fr-FR' = currentSpeechLang,
+        ): void => {
+          const trimmed = text.trim();
+          if (!trimmed) return;
+          addRealtimeTurn(callSid, { role: 'assistant', text: trimmed });
+          realtimeLastAssistantOutputAtByCallSid.set(callSid, Date.now());
+          sendRealtimeText(trimmed, true, lang);
+        };
         processRealtimeMessage = async (raw: unknown) => {
           try {
             const rawText =
@@ -1370,9 +1467,23 @@ export function createApp(deps?: {
                 detectedLanguage === 'fr' && supportedRealtimeLanguages.includes('fr')
                   ? 'fr-FR'
                   : 'en-US';
+              const lastAssistantText = [...(realtimeTranscriptByCallSid.get(callSid) ?? [])]
+                .reverse()
+                .find((turn) => turn.role === 'assistant')?.text;
+              const lastAssistantAt = realtimeLastAssistantOutputAtByCallSid.get(callSid) ?? 0;
+              if (
+                Date.now() - lastAssistantAt < 4000 &&
+                looksLikeAssistantEcho(userText, lastAssistantText)
+              ) {
+                app.log.info({ callSid, userText }, 'ignoring likely assistant echo');
+                return;
+              }
+
+              const previousState = cloneRealtimeState(realtimeStateByCallSid.get(callSid));
               const transcript = addRealtimeTurn(callSid, { role: 'user', text: userText });
               const intakeState = await captureRealtimeUserTurn(callSid, userText);
               const callerNeedsService = hasActiveRealtimeServiceNeed(intakeState);
+              const smallTalk = isSmallTalkText(userText);
               const directBusinessAnswer = isBusinessQuestion(userText)
                 ? answerBusinessQuestionFromSettings({
                     text: userText,
@@ -1380,6 +1491,22 @@ export function createApp(deps?: {
                     settings,
                   })
                 : undefined;
+              const missingQuestion = nextMissingRealtimeQuestion(intakeState, detectedLanguage);
+              const acknowledgement = buildRealtimeAcknowledgement(detectedLanguage, {
+                previousState,
+                state: intakeState,
+              });
+
+              if (smallTalk && !callerNeedsService && !directBusinessAnswer) {
+                sendAssistantMessage(
+                  localizedRealtimeText(
+                    detectedLanguage,
+                    "I'm well, thanks. How can I help you today?",
+                    "Je vais bien, merci. Comment puis-je vous aider aujourd'hui ?",
+                  ),
+                );
+                return;
+              }
 
               if (intakeState.urgent && !transferRequested) {
                 transferRequested = true;
@@ -1391,7 +1518,7 @@ export function createApp(deps?: {
                     await twilioVoiceClient.calls(call.twilioCallSid).update({
                       twiml: twimlTransfer(settings.escalation_phone, transferPath),
                     });
-                    sendRealtimeText('Understood. Transferring you to the on-call team now.', true);
+                    sendAssistantMessage('Understood. Transferring you to the on-call team now.');
                     socket.close();
                     return;
                   } catch (error) {
@@ -1411,18 +1538,15 @@ export function createApp(deps?: {
                   settings,
                   forceUrgent: true,
                 });
-                sendRealtimeText(
+                sendAssistantMessage(
                   `Urgent request captured. We will call within ${settings.callback_sla_minutes} minutes.`,
-                  true,
                 );
                 socket.close();
                 return;
               }
 
-              const missingQuestion = nextMissingRealtimeQuestion(intakeState);
               if (directBusinessAnswer && !callerNeedsService) {
-                addRealtimeTurn(callSid, { role: 'assistant', text: directBusinessAnswer });
-                sendRealtimeText(directBusinessAnswer, true);
+                sendAssistantMessage(directBusinessAnswer);
                 return;
               }
 
@@ -1433,7 +1557,9 @@ export function createApp(deps?: {
                 intakeState.phoneConfirmed &&
                 !missingQuestion
               ) {
-                const calendarConnection = settings.calendar_enabled
+                const calendarConnection =
+                  settings.calendar_enabled &&
+                  (calendarService.isLiveProviderEnabled() || process.env.NODE_ENV === 'test')
                   ? await store.getCalendarConnection(params.tenantId)
                   : undefined;
                 if (calendarConnection) {
@@ -1452,48 +1578,60 @@ export function createApp(deps?: {
                 }
               }
 
-              let responseInstruction: string;
+              if (intakeState.urgentPendingConfirmation && !intakeState.urgent && missingQuestion) {
+                sendAssistantMessage(missingQuestion);
+                return;
+              }
+
               if (directBusinessAnswer && callerNeedsService) {
-                responseInstruction = missingQuestion
-                  ? `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. Answer the caller's business question first using this exact information: ${directBusinessAnswer} Then ask exactly this next intake question: ${missingQuestion}`
-                  : `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. Answer the caller's business question first using this exact information: ${directBusinessAnswer} Then briefly confirm the service request and close unless the caller asks for something else.`;
-              } else if (intakeState.requestedScheduleAvailability === 'unavailable') {
-                responseInstruction = `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. The caller's requested slot is not available. Briefly say that exact time is unavailable and ask for another specific time.`;
-              } else if (intakeState.requestedScheduleAvailability === 'available' && !missingQuestion) {
-                responseInstruction = `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. The caller's exact requested time is available. Briefly confirm that the requested time can be booked and say the team will send confirmation shortly. Do not ask another question unless the caller asks for something else.`;
-              } else if (missingQuestion) {
-                responseInstruction = `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. Intake progress: ask this next question -> ${missingQuestion}`;
-              } else {
-                responseInstruction = `Reply in ${detectedLanguage === 'fr' ? 'French' : 'English'} only. Intake progress: issue, address, preferred time, and callback number are captured. Briefly confirm and close unless the caller asks for something else.`;
+                sendAssistantMessage(
+                  missingQuestion
+                    ? `${directBusinessAnswer} ${missingQuestion}`
+                    : `${directBusinessAnswer} ${localizedRealtimeText(
+                        detectedLanguage,
+                        "Thanks, I have what I need. We'll send confirmation shortly.",
+                        "Merci, j'ai tout ce qu'il faut. Nous enverrons la confirmation rapidement.",
+                      )}`,
+                );
+                return;
               }
 
-              if (realtimeSession) {
-                if (realtimeSession.isConnected()) {
-                  const accepted = realtimeSession.sendUserTurn(userText, responseInstruction);
-                  if (accepted) return;
-                } else {
-                  await new Promise((resolve) => setTimeout(resolve, 250));
-                  if (realtimeSession.isConnected()) {
-                    const accepted = realtimeSession.sendUserTurn(userText, responseInstruction);
-                    if (accepted) return;
-                  }
-                }
+              if (missingQuestion) {
+                sendAssistantMessage(
+                  acknowledgement ? `${acknowledgement} ${missingQuestion}` : missingQuestion,
+                );
+                return;
               }
 
-              const answer = await realtimeConversation.reply({
-                businessName: settings.business_name,
-                knowledgeInstruction,
-                escalationPhone: settings.escalation_phone,
-                callbackSlaMinutes: settings.callback_sla_minutes,
-                languages: settings.languages,
-                transcript,
-                userText,
-                responseInstruction,
-                currentLanguage: detectedLanguage,
-                directAnswer: directBusinessAnswer,
-              });
-              addRealtimeTurn(callSid, { role: 'assistant', text: answer });
-              sendRealtimeText(answer, true);
+              if (intakeState.requestedScheduleAvailability === 'unavailable') {
+                sendAssistantMessage(
+                  localizedRealtimeText(
+                    detectedLanguage,
+                    "That exact time isn't available. What other time works for you?",
+                    "Cet horaire précis n'est pas disponible. Quel autre horaire vous conviendrait ?",
+                  ),
+                );
+                return;
+              }
+
+              if (intakeState.requestedScheduleAvailability === 'available') {
+                sendAssistantMessage(
+                  localizedRealtimeText(
+                    detectedLanguage,
+                    "Perfect. That time is available. We'll send your confirmation shortly.",
+                    'Parfait. Cet horaire est disponible. Nous vous envoyons la confirmation rapidement.',
+                  ),
+                );
+                return;
+              }
+
+              sendAssistantMessage(
+                localizedRealtimeText(
+                  detectedLanguage,
+                  "Thanks, I have the details. We'll send confirmation shortly.",
+                  "Merci, j'ai bien noté les détails. Nous envoyons la confirmation rapidement.",
+                ),
+              );
               return;
             }
 
@@ -1505,7 +1643,6 @@ export function createApp(deps?: {
                   : currentSpeechLang;
               addRealtimeTurn(callSid, { role: 'user', text: interruptText });
               await captureRealtimeUserTurn(callSid, interruptText);
-              realtimeSession?.cancelResponse();
               return;
             }
 
@@ -1534,7 +1671,6 @@ export function createApp(deps?: {
         socket.on('close', () => {
           const transcriptSnapshot = [...(realtimeTranscriptByCallSid.get(callSid) ?? [])];
           const intakeSnapshot = realtimeStateByCallSid.get(callSid);
-          realtimeSession?.close();
           void (async () => {
             let finalizedSuccessfully = false;
             try {
@@ -1562,6 +1698,7 @@ export function createApp(deps?: {
                 realtimeTranscriptByCallSid.delete(callSid);
                 realtimeStateByCallSid.delete(callSid);
                 realtimeLastSeenByCallSid.delete(callSid);
+                realtimeLastAssistantOutputAtByCallSid.delete(callSid);
               }
             }
           })();
@@ -1881,6 +2018,7 @@ export function createApp(deps?: {
             realtimeTranscriptByCallSid.delete(callSid);
             realtimeStateByCallSid.delete(callSid);
             realtimeLastSeenByCallSid.delete(callSid);
+            realtimeLastAssistantOutputAtByCallSid.delete(callSid);
             app.log.warn(
               { callSid, callId: call.id, callStatus },
               'terminal status finalized using realtime transcript',
@@ -2027,7 +2165,10 @@ export function createApp(deps?: {
       booking_status: 'manual_required',
     };
 
-    const calendarConnection = await store.getCalendarConnection(auth.tenantId);
+    const calendarConnection =
+      (calendarService.isLiveProviderEnabled() || process.env.NODE_ENV === 'test')
+      ? await store.getCalendarConnection(auth.tenantId)
+      : undefined;
     if (calendarConnection) {
       try {
         const booking = await calendarService.createOrUpdateBooking({
@@ -2098,7 +2239,16 @@ export function createApp(deps?: {
     }
     try {
       const raw = await store.getTenantSettings(targetTenant);
-      return { settings: { ...raw, id: raw.tenantId, workspaceId: raw.tenantId }, persistence };
+      return {
+        settings: {
+          ...raw,
+          calendar_enabled:
+            raw.calendar_enabled && (calendarConfigured || process.env.NODE_ENV === 'test'),
+          id: raw.tenantId,
+          workspaceId: raw.tenantId,
+        },
+        persistence,
+      };
     } catch {
       return tenantNotFound(reply);
     }
@@ -2140,10 +2290,22 @@ export function createApp(deps?: {
     } catch {
       return tenantNotFound(reply);
     }
-    return { settings: { ...raw, id: raw.tenantId, workspaceId: raw.tenantId }, persistence };
+    return {
+      settings: {
+        ...raw,
+        calendar_enabled:
+          raw.calendar_enabled && (calendarConfigured || process.env.NODE_ENV === 'test'),
+        id: raw.tenantId,
+        workspaceId: raw.tenantId,
+      },
+      persistence,
+    };
   });
 
   app.get('/v1/calendar/google/start', { preHandler: requireAuth }, async (request, reply) => {
+    if (!calendarConfigured && process.env.NODE_ENV !== 'test') {
+      return reply.status(503).send({ error: 'Google Calendar is not configured on this server.' });
+    }
     const auth = (request as typeof request & { auth: { tenantId: string } }).auth;
     const state = `${auth.tenantId}:${Date.now()}`;
     pruneExpiredOauthStates();
@@ -2157,6 +2319,9 @@ export function createApp(deps?: {
   });
 
   app.get('/v1/calendar/google/callback', async (request, reply) => {
+    if (!calendarConfigured && process.env.NODE_ENV !== 'test') {
+      return reply.status(503).send({ error: 'Google Calendar is not configured on this server.' });
+    }
     pruneExpiredOauthStates();
     const query = request.query as { code?: string; state?: string };
     if (!query.state || !oauthStates.has(query.state)) {
