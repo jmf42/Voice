@@ -1,5 +1,11 @@
 import { getToken, logout } from './auth.js';
-import type { Appointment, CallSummary, ClientProfile, Metrics } from './types.js';
+import type {
+  Appointment,
+  CallSummary,
+  ClientProfile,
+  Metrics,
+  ReadinessStatus,
+} from './types.js';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:4000';
 
@@ -284,4 +290,19 @@ export async function extractWebsiteData(url: string): Promise<Partial<ClientPro
     body: JSON.stringify({ url }),
   });
   return { ...data.extracted, website_url: url };
+}
+
+export async function loadReadinessStatus(): Promise<ReadinessStatus> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/health`);
+  } catch {
+    throw new Error('Cannot reach the live readiness check right now.');
+  }
+
+  if (!response.ok) {
+    throw new Error(`Readiness check failed (${response.status}).`);
+  }
+
+  return response.json() as Promise<ReadinessStatus>;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { connectCalendar, runOnboardingTestCall } from '../api.js';
 import { Icon } from '../components/Icon.js';
+import { ReadinessPanel } from '../components/ReadinessPanel.js';
 import { useTenant } from '../tenant.js';
 import type { ClientProfile as Settings } from '../types.js';
 
@@ -155,35 +156,34 @@ export function SettingsPage() {
               Settings
             </h1>
             <p className="mt-2 max-w-2xl text-gray-400">
-              Keep your business details, assistant knowledge, and calendar setup in one clean
-              place.
+              Edit the details Voice needs to answer calls, handle urgent jobs, and book work correctly.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:w-[340px]">
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                Storage
+                Saving
               </p>
               <strong className="mt-1 block text-white">
-                {draft.persistence_mode === 'memory' ? 'Temporary memory' : 'Database'}
+                {draft.persistence_mode === 'memory' ? 'Saved for now' : 'Saved permanently'}
               </strong>
               <p className="mt-1 text-sm text-gray-400">
                 {draft.persistence_durable
-                  ? 'Changes are durable.'
-                  : 'Changes are not durable yet.'}
+                  ? 'Your changes will still be here later.'
+                  : 'Your changes can reset until permanent storage is turned on.'}
               </p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                Calendar
+                Booking calendar
               </p>
               <strong className="mt-1 block text-white">
                 {draft.calendar_enabled ? 'Connected' : 'Not connected'}
               </strong>
               <p className="mt-1 text-sm text-gray-400">
                 {draft.calendar_enabled
-                  ? 'Appointments can sync.'
-                  : 'Connect Google Calendar to book.'}
+                  ? 'Booked jobs can sync automatically.'
+                  : 'Connect Google Calendar when you want automatic booking.'}
               </p>
             </div>
           </div>
@@ -194,9 +194,8 @@ export function SettingsPage() {
         <div className="mb-8 rounded-3xl border border-amber-400/30 bg-amber-500/10 px-6 py-5 text-amber-100 shadow-[0_0_30px_rgba(245,158,11,0.08)]">
           <strong className="block mb-1 text-amber-300">Temporary storage only</strong>
           <p className="text-sm leading-relaxed text-amber-100/90">
-            Settings are being saved in temporary memory right now. Changes will update the app
-            immediately, but they are not being written to a real database until the backend is in
-            database mode.
+            Your changes update the app right away, but they are only being saved temporarily until
+            permanent storage is turned on.
           </p>
         </div>
       ) : null}
@@ -209,9 +208,9 @@ export function SettingsPage() {
                 <Icon name="settings" size={20} />
               </div>
               <div className="min-w-0">
-                <h2 className="text-xl font-bold text-white">Business basics</h2>
+                <h2 className="text-xl font-bold text-white">Your business</h2>
                 <p className="mt-1 text-sm text-gray-400">
-                  These are the core details used for call routing and caller-facing answers.
+                  The basics Voice uses to answer calls and send urgent work to the right number.
                 </p>
               </div>
             </div>
@@ -219,10 +218,10 @@ export function SettingsPage() {
             {role === 'operator' ? (
               <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <strong className="block text-white">AI intake</strong>
+                  <strong className="block text-white">Call coverage</strong>
                   <p className="mt-1 text-sm text-gray-400">
                     {draft.enabled
-                      ? 'Calls are handled by the assistant first.'
+                      ? 'Voice answers first and passes on urgent or booked work.'
                       : 'Calls go straight to your business phone.'}
                   </p>
                 </div>
@@ -232,13 +231,13 @@ export function SettingsPage() {
                   onClick={() =>
                     void save(
                       { enabled: !draft.enabled },
-                      `AI intake ${draft.enabled ? 'disabled' : 'enabled'}.`,
+                      `Call answering ${draft.enabled ? 'turned off' : 'turned on'}.`,
                     )
                   }
                   disabled={saving}
                 >
                   <Icon name={draft.enabled ? 'check' : 'alert'} size={15} />
-                  {draft.enabled ? 'AI active' : 'AI bypassed'}
+                  {draft.enabled ? 'Answering on' : 'Answering off'}
                 </button>
               </div>
             ) : null}
@@ -254,7 +253,7 @@ export function SettingsPage() {
                 />
               </label>
               <label className="block">
-                <span className="block text-sm text-gray-400 mb-2">Main phone</span>
+                <span className="block text-sm text-gray-400 mb-2">Business phone</span>
                 <input
                   className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-purple-500/50 focus:outline-none"
                   value={draft.business_phone}
@@ -265,7 +264,7 @@ export function SettingsPage() {
             </div>
 
             <label className="mt-4 block">
-              <span className="block text-sm text-gray-400 mb-2">Urgent handoff phone</span>
+              <span className="block text-sm text-gray-400 mb-2">Urgent calls go here</span>
               <input
                 className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-3 text-white focus:border-purple-500/50 focus:outline-none"
                 value={draft.escalation_phone}
@@ -275,8 +274,8 @@ export function SettingsPage() {
             </label>
 
             <p className="mt-4 text-sm text-gray-400">
-              If AI intake is disabled, inbound calls go to the main phone. Urgent calls are routed
-              to the urgent handoff phone.
+              If answering is off, calls ring your business phone. Urgent calls go to the urgent
+              number.
             </p>
 
             <button
@@ -291,7 +290,7 @@ export function SettingsPage() {
               disabled={saving}
             >
               <Icon name="check" size={16} />
-              Save basics
+              Save business info
             </button>
           </article>
 
@@ -302,17 +301,16 @@ export function SettingsPage() {
                   <Icon name="zap" size={20} />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-xl font-bold text-white">Assistant knowledge</h2>
+                  <h2 className="text-xl font-bold text-white">What callers should know</h2>
                   <p className="mt-1 text-sm text-gray-400">
-                    This is the information the assistant should use when answering callers and
-                    preparing jobs.
+                    Add the details customers ask about most so answers stay clear and consistent.
                   </p>
                 </div>
               </div>
 
               <label className="mt-6 block">
-                <span className="block text-sm text-gray-400 mb-2">
-                  Business profile, policies, and AI memory
+                  <span className="block text-sm text-gray-400 mb-2">
+                  Notes for answering calls
                 </span>
                 <textarea
                   className="w-full rounded-xl border border-white/10 bg-black/50 px-4 py-4 text-white focus:border-emerald-500/50 focus:outline-none resize-y"
@@ -327,13 +325,13 @@ export function SettingsPage() {
               <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">FAQs</h3>
+                    <h3 className="text-lg font-semibold text-white">Common questions</h3>
                     <p className="mt-1 text-sm text-gray-400">
-                      Short, direct answers for common caller questions.
+                      Short answers to the questions you hear all the time.
                     </p>
                   </div>
                   <button type="button" onClick={addFaq} disabled={saving} className="ghost">
-                    Add FAQ
+                    Add question
                   </button>
                 </div>
 
@@ -376,7 +374,7 @@ export function SettingsPage() {
                   ))}
                   {(draft.faqs ?? []).length === 0 ? (
                     <p className="text-sm text-gray-500">
-                      No FAQs yet. Add the answers you want the assistant to reuse.
+                      No saved questions yet. Add the answers you want callers to hear every time.
                     </p>
                   ) : null}
                 </div>
@@ -385,9 +383,9 @@ export function SettingsPage() {
               <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">Services</h3>
+                    <h3 className="text-lg font-semibold text-white">What you offer</h3>
                     <p className="mt-1 text-sm text-gray-400">
-                      These services help the assistant identify what the caller needs.
+                      Add your main jobs or services so calls are tagged correctly.
                     </p>
                   </div>
                   <button type="button" onClick={addService} disabled={saving} className="ghost">
@@ -458,7 +456,7 @@ export function SettingsPage() {
                   ))}
                   {(draft.services ?? []).length === 0 ? (
                     <p className="text-sm text-gray-500">
-                      No services yet. Add your main service names so jobs can be tagged correctly.
+                      No services yet. Add the main work you do so calls can be sorted correctly.
                     </p>
                   ) : null}
                 </div>
@@ -467,34 +465,36 @@ export function SettingsPage() {
               <button
                 className="mt-6"
                 onClick={() =>
-                  void save(
-                    {
-                      business_context: draft.business_context,
-                      faqs: draft.faqs,
-                      services: draft.services,
-                    },
-                    'Assistant knowledge saved.',
-                  )
-                }
-                disabled={saving}
-              >
-                <Icon name="check" size={16} />
-                Save knowledge
-              </button>
+                    void save(
+                      {
+                        business_context: draft.business_context,
+                        faqs: draft.faqs,
+                        services: draft.services,
+                      },
+                      'Caller info saved.',
+                    )
+                  }
+                  disabled={saving}
+                >
+                  <Icon name="check" size={16} />
+                  Save caller info
+                </button>
             </article>
           ) : null}
         </div>
 
         <aside className="grid gap-6">
+          <ReadinessPanel settings={draft} compact />
+
           <article className="rounded-[28px] border border-white/10 bg-black/40 p-7 shadow-2xl backdrop-blur-2xl xl:sticky xl:top-24">
             <div className="flex items-start gap-4">
               <div className="mt-1 flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-400">
                 <Icon name="calendar" size={20} />
               </div>
               <div className="min-w-0">
-                <h2 className="text-xl font-bold text-white">Calendar & testing</h2>
+                <h2 className="text-xl font-bold text-white">Calendar and test call</h2>
                 <p className="mt-1 text-sm text-gray-400">
-                  Connect scheduling and validate the flow end-to-end.
+                  Connect your calendar and run one sample request to confirm the setup.
                 </p>
               </div>
             </div>
@@ -502,7 +502,7 @@ export function SettingsPage() {
             <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
               <strong className="block text-white">Google Calendar</strong>
               <p className="mt-1 text-sm text-gray-400">
-                {draft.calendar_enabled ? 'Connected and syncing' : 'Not connected yet'}
+                {draft.calendar_enabled ? 'Connected and ready to sync' : 'Not connected yet'}
               </p>
             </div>
 
@@ -513,23 +513,23 @@ export function SettingsPage() {
               </button>
               <button className="ghost" onClick={() => void handleTestCall()} disabled={saving}>
                 <Icon name="phone" size={16} />
-                Create sample job
+                Make a sample call
               </button>
             </div>
 
             <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-              <strong className="block text-white">What the assistant uses</strong>
+              <strong className="block text-white">This page controls</strong>
               <ul className="mt-3 grid gap-2 text-sm text-gray-400">
-                <li>Business name and phone routing</li>
-                <li>Business context and policies</li>
-                <li>FAQs and services</li>
-                <li>Calendar connection and booking availability</li>
+                <li>Your business name and phone numbers</li>
+                <li>Notes Voice should use on calls</li>
+                <li>Common questions and services</li>
+                <li>Calendar connection for bookings</li>
               </ul>
             </div>
 
             <p className="mt-6 text-sm text-gray-400">
-              After connecting Google Calendar, confirmed jobs can be written to the connected
-              calendar and auto-booked when the flow has enough information.
+              After you connect Google Calendar, booked jobs can be added there automatically when
+              the call has enough information.
             </p>
           </article>
         </aside>

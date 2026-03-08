@@ -22,6 +22,16 @@ const settingsResponse = {
   },
 };
 
+const healthResponse = {
+  ok: true,
+  service: 'dispatchos-api',
+  readiness: { productionSafe: false, issues: [] },
+  persistence: { mode: 'database', durable: true },
+  queue: { mode: 'redis', durable: true },
+  auth: { devBearerEnabled: true, firebaseAdminConfigured: true },
+  providers: { openai: true, twilioVoice: true, sms: true, calendar: false },
+};
+
 function markOnboardingComplete(): void {
   localStorage.setItem('dispatchos_onboarding_done:demo-tenant', 'true');
 }
@@ -41,6 +51,10 @@ beforeEach(() => {
 
       if (url.includes('/v1/settings')) {
         return new Response(JSON.stringify(settingsResponse), { status: 200 });
+      }
+
+      if (url.includes('/health')) {
+        return new Response(JSON.stringify(healthResponse), { status: 200 });
       }
 
       if (url.includes('/v1/jobs/stream')) {
@@ -96,11 +110,11 @@ describe('web app', () => {
     );
 
     expect(
-      screen.getByRole('heading', { name: /AI phone answering for service businesses/i }),
+      screen.getByRole('heading', { name: /Never lose a job because you missed a call/i }),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Voice answers every call, captures what the customer needs, and books the job/i,
+        /Voice answers missed, after-hours, and overflow calls so your business keeps winning work/i,
       ),
     ).toBeInTheDocument();
     expect(screen.getByTestId('mock-cyber-bg')).toBeInTheDocument();
@@ -183,7 +197,7 @@ describe('web app', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Assistant knowledge' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'What callers should know' })).toBeInTheDocument();
   });
 
   it('shows a simpler dashboard workspace with quick actions', async () => {
@@ -197,6 +211,10 @@ describe('web app', () => {
 
         if (url.includes('/v1/settings')) {
           return new Response(JSON.stringify(settingsResponse), { status: 200 });
+        }
+
+        if (url.includes('/health')) {
+          return new Response(JSON.stringify(healthResponse), { status: 200 });
         }
 
         if (url.includes('/v1/jobs/stream')) {
@@ -250,8 +268,9 @@ describe('web app', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeInTheDocument();
-    expect(await screen.findByText('Quick actions')).toBeInTheDocument();
+    expect(await screen.findByText('New and recent calls')).toBeInTheDocument();
+    expect(await screen.findByText('Do this now')).toBeInTheDocument();
+    expect(await screen.findByText('Finish these before going live')).toBeInTheDocument();
   });
 
   it('shows calendar follow-up areas clearly', async () => {
@@ -265,6 +284,10 @@ describe('web app', () => {
 
         if (url.includes('/v1/settings')) {
           return new Response(JSON.stringify(settingsResponse), { status: 200 });
+        }
+
+        if (url.includes('/health')) {
+          return new Response(JSON.stringify(healthResponse), { status: 200 });
         }
 
         if (url.includes('/v1/jobs')) {
@@ -321,8 +344,8 @@ describe('web app', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('Upcoming appointments')).toBeInTheDocument();
-    expect(await screen.findByText('Manual follow-up')).toBeInTheDocument();
+    expect(await screen.findByText('Upcoming bookings')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Still needs booking' })).toBeInTheDocument();
   });
 
   it('warns when settings are not being saved to a durable database', async () => {
@@ -342,6 +365,15 @@ describe('web app', () => {
             { status: 200 },
           );
         }
+        if (url.includes('/health')) {
+          return new Response(
+            JSON.stringify({
+              ...healthResponse,
+              persistence: { mode: 'memory', durable: false },
+            }),
+            { status: 200 },
+          );
+        }
         return new Response('{}', { status: 200 });
       }),
     );
@@ -353,7 +385,7 @@ describe('web app', () => {
     );
 
     expect(
-      await screen.findByText(/Settings are being saved in temporary memory/i),
+      await screen.findByText(/Your changes update the app right away/i),
     ).toBeInTheDocument();
   });
 
@@ -380,7 +412,7 @@ describe('web app', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('Latest requests')).toBeInTheDocument();
+    expect(await screen.findByText('New and recent calls')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('heading', { name: 'Sign in to Voice' })).toBeInTheDocument();
     expect(localStorage.getItem('dispatchos_token')).toBeNull();
@@ -397,9 +429,9 @@ describe('web app', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('Latest requests')).toBeInTheDocument();
+    expect(await screen.findByText('New and recent calls')).toBeInTheDocument();
     const primaryNav = screen.getByRole('navigation', { name: 'Primary' });
-    fireEvent.click(within(primaryNav).getByRole('link', { name: /Settings/ }));
+    fireEvent.click(within(primaryNav).getByRole('link', { name: /Setup/ }));
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
 
     const settingsCalls = fetchMock.mock.calls.filter((call) =>
@@ -421,6 +453,6 @@ describe('web app', () => {
     expect(
       within(primaryNav).queryByRole('link', { name: /Knowledge Base/i }),
     ).not.toBeInTheDocument();
-    expect(within(primaryNav).getByRole('link', { name: /Settings/i })).toBeInTheDocument();
+    expect(within(primaryNav).getByRole('link', { name: /Setup/i })).toBeInTheDocument();
   });
 });

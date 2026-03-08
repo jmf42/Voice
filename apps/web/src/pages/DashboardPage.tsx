@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { listCalls, subscribeCalls, runOnboardingTestCall } from '../api.js';
 import { CallCard } from '../components/CallCard.js';
 import { Icon } from '../components/Icon.js';
+import { ReadinessPanel } from '../components/ReadinessPanel.js';
 import { useTenant } from '../tenant.js';
 import type { CallSummary } from '../types.js';
 
@@ -18,11 +19,11 @@ export function DashboardPage() {
   async function handleCreateSampleRequest() {
     try {
       setActionBusy(true);
-      setActionMessage('Creating sample request...');
+      setActionMessage('Creating test request...');
       await runOnboardingTestCall(settings?.id);
-      setActionMessage('Sample request created.');
+      setActionMessage('Test request created.');
     } catch (err) {
-      setActionMessage(err instanceof Error ? err.message : 'Unable to create sample request.');
+      setActionMessage(err instanceof Error ? err.message : 'Unable to create test request.');
     } finally {
       setActionBusy(false);
       setTimeout(() => setActionMessage(null), 3000);
@@ -106,7 +107,7 @@ export function DashboardPage() {
             <p className="subtitle">
               {role === 'client_admin'
                 ? 'Loading your latest customer activity…'
-                : 'Loading customer requests…'}
+                : 'Loading calls and bookings…'}
             </p>
           </div>
         </div>
@@ -133,35 +134,35 @@ export function DashboardPage() {
             <h1>{role === 'client_admin' ? 'Business overview' : 'Inbox'}</h1>
             <p className="mt-2 max-w-2xl text-sm text-gray-400">
               {role === 'client_admin'
-                ? 'See requests, urgent cases, and bookings without digging through multiple screens.'
+                ? 'See new calls, urgent issues, and booked work without jumping between screens.'
                 : settings?.business_name
-                  ? `${settings.business_name} requests, follow-ups, and bookings in one workspace.`
-                  : 'Customer requests, follow-ups, and bookings in one workspace.'}
+                  ? `${settings.business_name} calls, booked jobs, and anything that needs you in one place.`
+                  : 'Calls, booked jobs, and anything that needs you in one place.'}
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3 xl:w-[420px]">
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                Requests
+                New calls
               </p>
               <strong className="mt-1 block text-2xl text-white">{calls.length}</strong>
-              <p className="mt-1 text-sm text-gray-400">recent conversations</p>
+              <p className="mt-1 text-sm text-gray-400">recent customer calls</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                Booked
+                Booked jobs
               </p>
               <strong className="mt-1 block text-2xl text-white">{bookingCount}</strong>
-              <p className="mt-1 text-sm text-gray-400">already on the calendar</p>
+              <p className="mt-1 text-sm text-gray-400">already on your calendar</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                Attention
+                Needs you
               </p>
               <strong className="mt-1 block text-2xl text-white">
                 {urgentCount + followUpCount}
               </strong>
-              <p className="mt-1 text-sm text-gray-400">need a human check</p>
+              <p className="mt-1 text-sm text-gray-400">calls to check yourself</p>
             </div>
           </div>
         </div>
@@ -171,9 +172,9 @@ export function DashboardPage() {
         <section className="rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-xl font-bold text-white">Latest requests</h2>
+              <h2 className="text-xl font-bold text-white">New and recent calls</h2>
               <p className="mt-1 text-sm text-gray-400">
-                New calls appear here automatically. Search by phone or summary.
+                New calls show up here automatically. Search by phone number or what the caller needed.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -183,7 +184,7 @@ export function DashboardPage() {
                 <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search requests…"
+                  placeholder="Search calls…"
                 />
               </label>
               <button
@@ -201,7 +202,7 @@ export function DashboardPage() {
             {shownCalls.length === 0 ? (
               <div className="empty-state">
                 <Icon name="check" size={28} />
-                <p>No requests match this search yet.</p>
+                <p>No calls match this search yet.</p>
               </div>
             ) : (
               shownCalls.map((call) => <CallCard key={call.id} call={call} />)
@@ -211,9 +212,9 @@ export function DashboardPage() {
 
         <aside className="grid gap-6">
           <article className="rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
-            <h2 className="text-xl font-bold text-white">Quick actions</h2>
+            <h2 className="text-xl font-bold text-white">Do this now</h2>
             <p className="mt-2 text-sm text-gray-400">
-              The most common things to do when setting up or checking the workspace.
+              The fastest way to check calls, bookings, and setup without digging around.
             </p>
             <div className="mt-5 grid gap-3">
               {role === 'operator' ? (
@@ -222,7 +223,7 @@ export function DashboardPage() {
                   disabled={loading || actionBusy}
                 >
                   <Icon name="phone" size={14} />
-                  Create sample request
+                  Create a sample request
                 </button>
               ) : null}
               <Link
@@ -231,7 +232,7 @@ export function DashboardPage() {
               >
                 <span className="flex items-center gap-2">
                   <Icon name="calendar" size={14} />
-                  Open calendar
+                  Review today&apos;s bookings
                 </span>
                 <Icon name="chevron" size={14} />
               </Link>
@@ -241,43 +242,14 @@ export function DashboardPage() {
               >
                 <span className="flex items-center gap-2">
                   <Icon name="settings" size={14} />
-                  Review settings
+                  Check setup
                 </span>
                 <Icon name="chevron" size={14} />
               </Link>
             </div>
           </article>
 
-          <article className="rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
-            <h2 className="text-xl font-bold text-white">Need attention</h2>
-            <p className="mt-2 text-sm text-gray-400">
-              A simple summary of where a person may need to step in.
-            </p>
-            <ul className="mt-5 grid gap-3">
-              <li className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
-                <strong className="block text-white">
-                  {urgentCount} urgent request{urgentCount === 1 ? '' : 's'}
-                </strong>
-                <p className="mt-1 text-sm text-gray-400">
-                  Need a quick callback or live transfer.
-                </p>
-              </li>
-              <li className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
-                <strong className="block text-white">
-                  {followUpCount} follow-up{followUpCount === 1 ? '' : 's'}
-                </strong>
-                <p className="mt-1 text-sm text-gray-400">Need manual review to close the loop.</p>
-              </li>
-              <li className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
-                <strong className="block text-white">
-                  {bookingCount} booked request{bookingCount === 1 ? '' : 's'}
-                </strong>
-                <p className="mt-1 text-sm text-gray-400">
-                  Already captured successfully by the assistant.
-                </p>
-              </li>
-            </ul>
-          </article>
+          <ReadinessPanel settings={settings} />
         </aside>
       </div>
 

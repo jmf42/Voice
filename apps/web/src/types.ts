@@ -73,3 +73,36 @@ export interface Metrics {
   avg_call_duration_seconds: number;
   hallucination_rate: number; // percentage
 }
+
+export interface ReadinessIssue {
+  code: string;
+  severity: 'critical' | 'warning';
+  message: string;
+}
+
+export interface ReadinessStatus {
+  ok: boolean;
+  service: string;
+  readiness: {
+    productionSafe: boolean;
+    issues: ReadinessIssue[];
+  };
+  persistence: {
+    mode: 'memory' | 'database';
+    durable: boolean;
+  };
+  queue: {
+    mode: 'memory' | 'redis';
+    durable: boolean;
+  };
+  auth: {
+    devBearerEnabled: boolean;
+    firebaseAdminConfigured: boolean;
+  };
+  providers: {
+    openai: boolean;
+    twilioVoice: boolean;
+    sms: boolean;
+    calendar: boolean;
+  };
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listAppointments } from '../api.js';
 import { Icon } from '../components/Icon.js';
+import { ReadinessPanel } from '../components/ReadinessPanel.js';
 import { useTenant } from '../tenant.js';
 import type { Appointment } from '../types.js';
 
@@ -130,7 +131,7 @@ export function CalendarPage() {
           <div className="min-w-0">
             <h1>Calendar</h1>
             <p className="mt-2 max-w-2xl text-sm text-gray-400">
-              See confirmed bookings, manual follow-ups, and the next appointment in one place.
+              See today’s jobs, upcoming bookings, and anything you still need to confirm.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3 xl:w-[420px]">
@@ -143,17 +144,17 @@ export function CalendarPage() {
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                Confirmed
+                Booked
               </p>
               <strong className="mt-1 block text-2xl text-white">{appointments.length}</strong>
-              <p className="mt-1 text-sm text-gray-400">active appointments</p>
+              <p className="mt-1 text-sm text-gray-400">upcoming bookings</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                Manual
+                Need booking
               </p>
               <strong className="mt-1 block text-2xl text-white">{manualBookingCount}</strong>
-              <p className="mt-1 text-sm text-gray-400">need follow-up</p>
+              <p className="mt-1 text-sm text-gray-400">still need a person</p>
             </div>
           </div>
         </div>
@@ -163,8 +164,8 @@ export function CalendarPage() {
         <section className="rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-xl font-bold text-white">Upcoming appointments</h2>
-              <p className="mt-1 text-sm text-gray-400">Confirmed bookings grouped by day.</p>
+              <h2 className="text-xl font-bold text-white">Upcoming bookings</h2>
+              <p className="mt-1 text-sm text-gray-400">Your booked work, grouped by day.</p>
             </div>
             <div className="flex gap-3">
               <button
@@ -172,7 +173,7 @@ export function CalendarPage() {
                 onClick={() => setManualOnly((v) => !v)}
               >
                 <Icon name="zap" size={14} />
-                {manualOnly ? 'Manual only' : 'All appointments'}
+                {manualOnly ? 'Only needs booking' : 'All bookings'}
               </button>
               <button onClick={() => void refresh()} disabled={loading} className="ghost">
                 <Icon name="refresh" size={14} />
@@ -184,11 +185,11 @@ export function CalendarPage() {
           {grouped.length === 0 ? (
             <div className="mt-6 empty-state">
               <Icon name="calendar" size={36} />
-              <h3>No confirmed appointments</h3>
-              <p>
-                No confirmed appointments match the current view. Check the{' '}
-                <Link to="/dashboard">Dashboard</Link> for recent calls.
-              </p>
+                <h3>No bookings yet</h3>
+                <p>
+                  No bookings match this view yet. Check the <Link to="/dashboard">Inbox</Link>{' '}
+                  for recent calls.
+                </p>
             </div>
           ) : (
             <div className="mt-6 calendar-board">
@@ -196,7 +197,7 @@ export function CalendarPage() {
                 <article className="calendar-day" key={day}>
                   <header>
                     <h2>{formatDayLabel(day)}</h2>
-                    <p>{entries.length} scheduled</p>
+                    <p>{entries.length} booked</p>
                   </header>
                   <ol className="calendar-events">
                     {entries.map((apt) => (
@@ -216,7 +217,7 @@ export function CalendarPage() {
                             {apt.callId ? <Link to={`/calls/${apt.callId}`}>View call</Link> : null}
                             {apt.status === 'needs_manual_booking' ? (
                               <span className="ops-pill overdue">
-                                <Icon name="alert" size={11} /> Manual booking needed
+                                <Icon name="alert" size={11} /> Still needs booking
                               </span>
                             ) : null}
                           </div>
@@ -231,12 +232,14 @@ export function CalendarPage() {
         </section>
 
         <aside className="grid gap-6">
+          <ReadinessPanel settings={settings} compact />
+
           <article className="rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
             <h2 className="text-xl font-bold text-white">Calendar status</h2>
             <p className="mt-2 text-sm text-gray-400">
               {settings?.calendar_enabled
-                ? 'Google Calendar is connected and can receive confirmed bookings.'
-                : 'Calendar is not connected yet. Booking stays manual until you connect it.'}
+                ? 'Google Calendar is connected, so booked jobs can be added there automatically.'
+                : 'Calendar is not connected yet, so bookings stay manual for now.'}
             </p>
             {nextAppointment ? (
               <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
@@ -249,9 +252,9 @@ export function CalendarPage() {
           </article>
 
           <article className="rounded-[28px] border border-white/10 bg-black/40 p-6 shadow-2xl backdrop-blur-2xl">
-            <h2 className="text-xl font-bold text-white">Manual follow-up</h2>
+            <h2 className="text-xl font-bold text-white">Still needs booking</h2>
             <p className="mt-2 text-sm text-gray-400">
-              These bookings still need a person to confirm the slot.
+              These callers still need you to confirm a time.
             </p>
             <div className="mt-5 grid gap-3">
               {appointments.filter((apt) => apt.status === 'needs_manual_booking').length === 0 ? (
