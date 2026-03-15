@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractRequestedSchedule,
   isBusinessQuestion,
+  isLikelyUnclearRealtimeTranscript,
   isSmallTalkText,
   shouldCaptureIssueText,
 } from '../src/realtime-intake.js';
@@ -32,5 +33,11 @@ describe('realtime intake helpers', () => {
     expect(isSmallTalkText('Good morning. How are you?')).toBe(true);
     expect(shouldCaptureIssueText('Good morning. How are you?')).toBe(false);
     expect(shouldCaptureIssueText('I need a lock replacement tonight.')).toBe(true);
+  });
+
+  it('flags noisy realtime transcripts for clarification before intake advances', () => {
+    expect(isLikelyUnclearRealtimeTranscript('[noise]')).toBe(true);
+    expect(isLikelyUnclearRealtimeTranscript('um')).toBe(true);
+    expect(isLikelyUnclearRealtimeTranscript('Need boiler repair at Main Street 10.')).toBe(false);
   });
 });

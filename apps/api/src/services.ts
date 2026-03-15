@@ -286,6 +286,178 @@ function extractJobSummarySource(call: CallRecord): string {
     .trim();
 }
 
+const REALTIME_SESSION_MAX_OUTPUT_TOKENS = 120;
+const REALTIME_TRUNCATION_RETENTION_RATIO = 0.8;
+
+export interface RealtimeToolDefinition {
+  description: string;
+  parameters: Record<string, unknown>;
+  handler: (input: Record<string, unknown>) => Promise<unknown>;
+}
+
+interface RealtimeFunctionCall {
+  name: string;
+  callId: string;
+  arguments: Record<string, unknown>;
+}
+
+function buildRealtimeSessionInstructions(args: {
+  businessName: string;
+  knowledgeInstruction?: string;
+  escalationPhone: string;
+  callbackSlaMinutes: number;
+  languages: Array<'fr' | 'en'>;
+}): string {
+  const languageHint =
+    args.languages.includes('fr') && args.languages.includes('en')
+      ? 'English or French'
+      : args.languages[0] === 'fr'
+        ? 'French'
+        : 'English';
+  const languageRule =
+    args.languages.includes('fr') && args.languages.includes('en')
+      ? [
+          '- Reply only in English or French.',
+          '- Use French only when the caller is clearly speaking French.',
+          '- Otherwise use English.',
+          '- Never switch to Spanish or any other language.',
+        ].join('\n')
+      : args.languages.includes('fr')
+        ? [
+            '- Reply only in French.',
+            '- Never switch to English, Spanish, or any other language unless an operator changes the business settings.',
+          ].join('\n')
+        : [
+            '- Reply only in English.',
+            '- Never switch to French, Spanish, or any other language unless an operator changes the business settings.',
+          ].join('\n');
+
+  return [
+    '# Role',
+    `You are the live phone intake assistant for ${args.businessName}.`,
+    '',
+    '# Business context',
+    args.knowledgeInstruction || 'No extra business policy context was provided.',
+    '',
+    '# Supported language',
+    `- Supported caller language(s): ${languageHint}.`,
+    languageRule,
+    '',
+    '# Conversation goals',
+    '- Keep the call moving with short, natural responses for live phone conversations.',
+    '- If the caller only wants business information, answer directly from the saved business context and do not force service intake.',
+    '- Once the caller clearly asks for service help, collect only the next missing detail.',
+    '',
+    '# Conversation flow',
+    '- Ask at most one follow-up question at a time.',
+    '- Use at most one short sentence plus one short follow-up question.',
+    '- Do not greet again because Twilio already greeted the caller.',
+    '- Do not repeat details the caller already confirmed unless you are correcting a conflict.',
+    '- Do not claim a booking is confirmed unless the system says the requested time is available.',
+    '',
+    '# Safety and urgency',
+    '- Do not treat missing details as an emergency by themselves.',
+    `- For urgent but non-life-safety issues, promise callback within ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
+    '- For life-safety risk, tell the caller to contact emergency services immediately.',
+    '',
+    '# Repair and clarification',
+    '- If the transcript sounds incomplete, noisy, or unclear, ask the caller to repeat the last detail more clearly.',
+    '- If business context is missing, say you will pass the question to the team instead of inventing an answer.',
+    '',
+    '# Style',
+    '- Sound calm, concise, and human.',
+    '- Avoid long explanations.',
+    '- Vary short acknowledgements so the call does not sound robotic.',
+    '',
+    '# Example acknowledgement phrases',
+    '- English: "Got it.", "Thanks.", "Understood."',
+    '- French: "D\'accord.", "Merci.", "Très bien."',
+  ].join('\n');
+}
+
+function buildRealtimeResponseCreateEvent(
+  instructions?: string,
+  toolChoice: 'auto' | 'none' = 'none',
+): {
+  type: 'response.create';
+  response: {
+    output_modalities: ['text'];
+    max_output_tokens: number;
+    instructions?: string;
+    tool_choice?: 'auto';
+  };
+} {
+  return {
+    type: 'response.create',
+    response: {
+      output_modalities: ['text'],
+      max_output_tokens: REALTIME_SESSION_MAX_OUTPUT_TOKENS,
+      ...(toolChoice === 'auto' ? { tool_choice: 'auto' as const } : {}),
+      ...(instructions ? { instructions } : {}),
+    },
+  };
+}
+
+function buildRealtimeToolDefinitions(
+  tools: Record<string, RealtimeToolDefinition> | undefined,
+): Array<{
+  type: 'function';
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}> {
+  return Object.entries(tools ?? {}).map(([name, tool]) => ({
+    type: 'function',
+    name,
+    description: tool.description,
+    parameters: tool.parameters,
+  }));
+}
+
+function parseRealtimeFunctionArguments(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string' || !value.trim()) return {};
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractRealtimeFunctionCalls(event: {
+  response?: { output?: Array<Record<string, unknown>> };
+}): RealtimeFunctionCall[] {
+  const output = Array.isArray(event.response?.output) ? event.response.output : [];
+
+  return output
+    .map((item) => {
+      if (item.type !== 'function_call') return null;
+
+      const name = typeof item.name === 'string' ? item.name : '';
+      const callId = typeof item.call_id === 'string' ? item.call_id : '';
+      if (!name || !callId) return null;
+
+      return {
+        name,
+        callId,
+        arguments: parseRealtimeFunctionArguments(item.arguments),
+      };
+    })
+    .filter((item): item is RealtimeFunctionCall => Boolean(item));
+}
+
+function serializeRealtimeToolOutput(value: unknown): string {
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return JSON.stringify({ ok: false, error: 'Unable to serialize tool output' });
+  }
+}
+
 export class ClassificationService {
   private client?: OpenAI;
   private model: string;
@@ -370,6 +542,7 @@ export class RealtimeConversationService {
     escalationPhone: string;
     callbackSlaMinutes: number;
     languages: Array<'fr' | 'en'>;
+    tools?: Record<string, RealtimeToolDefinition>;
     onTextDelta: (token: string) => void;
     onTextDone: () => void;
     onError: (message: string) => void;
@@ -383,43 +556,17 @@ export class RealtimeConversationService {
     if (!this.apiKey) return null;
 
     const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(this.realtimeModel)}`;
-    const languageHint =
-      args.languages.includes('fr') && args.languages.includes('en')
-        ? 'French or English'
-        : args.languages[0];
-    const languageRule =
-      args.languages.includes('fr') && args.languages.includes('en')
-        ? 'You may respond only in English or French. Use French only if the caller is clearly speaking French. Otherwise use English. Never switch to Spanish or any other language.'
-        : args.languages.includes('fr')
-          ? 'Respond only in French. Never switch to English, Spanish, or any other language unless an operator changes the business settings.'
-          : 'Respond only in English. Never switch to French, Spanish, or any other language unless an operator changes the business settings.';
-    const instructions = [
-      `You are the phone intake assistant for ${args.businessName}.`,
-      args.knowledgeInstruction || 'No extra business policy context was provided.',
-      `Supported language: ${languageHint}.`,
-      languageRule,
-      'Keep responses concise and natural for live phone calls.',
-      'Use at most one short sentence plus one short follow-up question.',
-      'Ask one follow-up question when information is missing.',
-      'Twilio already greeted the caller, so do not greet again unless the caller restarts the conversation later.',
-      'Do not repeat details the caller already confirmed unless you are correcting a conflict.',
-      'Do not treat missing details as an emergency.',
-      'Do not say a booking is confirmed unless the system says the requested slot is available.',
-      `For urgent non-life-safety issues, promise callback in ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
-      'For life-safety risk, instruct caller to contact emergency services immediately.',
-      'If asked a business-specific question, answer from business context first. If context is missing, say you will pass to the team.',
-      'If the caller is only asking for business information, answer directly and do not force dispatch intake.',
-    ].join(' ');
+    const instructions = buildRealtimeSessionInstructions(args);
 
     const ws = new WebSocket(url, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
-        'OpenAI-Beta': 'realtime=v1',
       },
     });
 
     let connected = false;
     let failed = false;
+    const toolChoice = Object.keys(args.tools ?? {}).length > 0 ? 'auto' : 'none';
     const queuedActions: Array<
       { type: 'turn'; text: string; instructions?: string } | { type: 'response'; instructions?: string }
     > = [];
@@ -429,12 +576,7 @@ export class RealtimeConversationService {
     const triggerResponse = (instructions?: string): void => {
       responseActive = true;
       sawDeltaForActiveResponse = false;
-      ws.send(
-        JSON.stringify({
-          type: 'response.create',
-          ...(instructions ? { response: { instructions } } : {}),
-        }),
-      );
+      ws.send(JSON.stringify(buildRealtimeResponseCreateEvent(instructions, toolChoice)));
     };
 
     const sendTurn = (text: string, instructions?: string): void => {
@@ -458,9 +600,20 @@ export class RealtimeConversationService {
         JSON.stringify({
           type: 'session.update',
           session: {
-            modalities: ['text'],
+            type: 'realtime',
+            model: this.realtimeModel,
             instructions,
-            max_response_output_tokens: 120,
+            output_modalities: ['text'],
+            max_output_tokens: REALTIME_SESSION_MAX_OUTPUT_TOKENS,
+            ...(toolChoice === 'auto'
+              ? {
+                  tools: buildRealtimeToolDefinitions(args.tools),
+                }
+              : {}),
+            truncation: {
+              type: 'retention_ratio',
+              retention_ratio: REALTIME_TRUNCATION_RETENTION_RATIO,
+            },
           },
         }),
       );
@@ -473,6 +626,39 @@ export class RealtimeConversationService {
       }
     });
 
+    const handleFunctionCalls = async (calls: RealtimeFunctionCall[]): Promise<void> => {
+      for (const call of calls) {
+        const tool = args.tools?.[call.name];
+        const output = tool
+          ? await tool
+              .handler(call.arguments)
+              .catch((error: unknown) => ({
+                ok: false,
+                error: error instanceof Error ? error.message : 'Realtime tool failed',
+              }))
+          : {
+              ok: false,
+              error: `Unknown realtime tool: ${call.name}`,
+            };
+
+        if (ws.readyState !== WebSocket.OPEN) return;
+
+        ws.send(
+          JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'function_call_output',
+              call_id: call.callId,
+              output: serializeRealtimeToolOutput(output),
+            },
+          }),
+        );
+      }
+
+      if (ws.readyState !== WebSocket.OPEN) return;
+      triggerResponse();
+    };
+
     ws.on('message', (raw: unknown) => {
       try {
         const rawText =
@@ -482,6 +668,7 @@ export class RealtimeConversationService {
           delta?: string;
           text?: string;
           error?: { message?: string };
+          response?: { output?: Array<Record<string, unknown>> };
         };
         if (
           (event.type === 'response.output_text.delta' || event.type === 'response.text.delta') &&
@@ -499,11 +686,21 @@ export class RealtimeConversationService {
             args.onTextDelta(event.text);
           }
         }
-        if (
-          event.type === 'response.output_text.done' ||
-          event.type === 'response.text.done' ||
-          event.type === 'response.done'
-        ) {
+        if (event.type === 'response.done') {
+          if (!responseActive) return;
+          const functionCalls = extractRealtimeFunctionCalls(event);
+          responseActive = false;
+          sawDeltaForActiveResponse = false;
+          if (functionCalls.length > 0) {
+            void handleFunctionCalls(functionCalls).catch((error: unknown) => {
+              args.onError(error instanceof Error ? error.message : 'Realtime tool handling failed');
+            });
+            return;
+          }
+          args.onTextDone();
+          return;
+        }
+        if (event.type === 'response.output_text.done' || event.type === 'response.text.done') {
           if (!responseActive) return;
           responseActive = false;
           sawDeltaForActiveResponse = false;
@@ -605,16 +802,13 @@ export class RealtimeConversationService {
     const currentLanguage =
       args.currentLanguage ??
       (args.languages.includes('fr') && !args.languages.includes('en') ? 'fr' : 'en');
-    const languageHint =
-      args.languages.includes('fr') && args.languages.includes('en')
-        ? 'French or English'
-        : args.languages[0];
-    const languageRule =
-      args.languages.includes('fr') && args.languages.includes('en')
-        ? 'You may respond only in English or French. Use French only if the caller is clearly speaking French. Otherwise use English. Never reply in Spanish or any other language.'
-        : args.languages.includes('fr')
-          ? 'Respond only in French. Never reply in English, Spanish, or any other language.'
-          : 'Respond only in English. Never reply in French, Spanish, or any other language.';
+    const baseInstructions = buildRealtimeSessionInstructions({
+      businessName: args.businessName,
+      knowledgeInstruction: args.knowledgeInstruction,
+      escalationPhone: args.escalationPhone,
+      callbackSlaMinutes: args.callbackSlaMinutes,
+      languages: args.languages,
+    });
 
     const response = await this.client.responses.create({
       model: this.fallbackModel,
@@ -625,26 +819,18 @@ export class RealtimeConversationService {
             {
               type: 'input_text',
               text: [
-                `You are the phone intake assistant for ${args.businessName}.`,
-                args.knowledgeInstruction || 'No extra business policy context was provided.',
-                `Supported language: ${languageHint}.`,
-                languageRule,
+                baseInstructions,
+                '',
+                '# Current turn state',
                 `Current caller language for this turn: ${currentLanguage === 'fr' ? 'French' : 'English'}.`,
-                `Keep responses concise (max 2 short sentences).`,
-                'Use at most one short answer and one short follow-up question.',
-                'Twilio already greeted the caller, so do not greet again unless the caller restarts the conversation later.',
-                'Do not repeat details the caller already confirmed unless you need to correct a conflict.',
-                'Do not treat missing booking details as an emergency.',
-                'Do not say the requested time is booked unless the system says the slot is available.',
-                'If life-safety risk (gas leak, fire, flooding, injury), tell the caller to contact emergency services immediately.',
-                `If urgent but non-life-safety, promise callback within ${args.callbackSlaMinutes} minutes or transfer to ${args.escalationPhone}.`,
-                'If the caller asks only a business-information question, answer it directly and do not begin intake yet.',
-                'Once the caller clearly asks for service help, ask exactly one follow-up question when key details are missing (issue, address, preferred time window, callback number).',
-                'If caller asks business-specific questions, answer from business context first; if unknown, route to team.',
+                'Keep this reply to at most two short sentences.',
+                'Ask for only the single next missing detail.',
                 args.responseInstruction
-                  ? `Current turn guidance: ${args.responseInstruction}.`
+                  ? `Current turn guidance: ${args.responseInstruction}`
                   : '',
-              ].join(' '),
+              ]
+                .filter(Boolean)
+                .join('\n'),
             },
           ],
         },

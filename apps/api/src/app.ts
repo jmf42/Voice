@@ -25,6 +25,7 @@ import {
   CalendarService,
   ClassificationService,
   RealtimeConversationService,
+  type RealtimeToolDefinition,
   SmsService,
   answerBusinessQuestionFromSettings,
   buildKnowledgeInstruction,
@@ -40,6 +41,7 @@ import {
   extractRequestedSchedule,
   inferTimeWindowFromText,
   isBusinessQuestion,
+  isLikelyUnclearRealtimeTranscript,
   isSmallTalkText,
   shouldCaptureIssueText,
   type RequestedSchedule,
@@ -196,6 +198,77 @@ function localizedRealtimeText(language: 'en' | 'fr', english: string, french: s
   return language === 'fr' ? french : english;
 }
 
+function looksLikeInformationalQuestion(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes('?')) return true;
+
+  return [
+    /^(what|when|where|who|how|do you|can you|are you|is there|does)\b/,
+    /^(quel|quelle|quels|quelles|quand|ou|où|comment|est-ce que|avez-vous|faites-vous|proposez-vous)\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function describeRealtimeTimePreference(
+  state: Pick<RealtimeIntakeState, 'requestedSchedule' | 'preferredTimeWindow'>,
+  language: 'en' | 'fr',
+): string | undefined {
+  if (state.requestedSchedule?.label) {
+    return state.requestedSchedule.label;
+  }
+
+  if (state.preferredTimeWindow === 'morning') {
+    return language === 'fr' ? 'le matin' : 'in the morning';
+  }
+  if (state.preferredTimeWindow === 'afternoon') {
+    return language === 'fr' ? "l'après-midi" : 'in the afternoon';
+  }
+  if (state.preferredTimeWindow === 'evening') {
+    return language === 'fr' ? 'en soirée' : 'in the evening';
+  }
+
+  return undefined;
+}
+
+function buildRealtimeCompletionMessage(args: {
+  language: 'en' | 'fr';
+  state: Pick<RealtimeIntakeState, 'addressRaw' | 'requestedSchedule' | 'preferredTimeWindow'>;
+  businessHasCalendar: boolean;
+}): string {
+  const timeText = describeRealtimeTimePreference(args.state, args.language);
+  const address = args.state.addressRaw?.trim();
+
+  if (address && timeText) {
+    return localizedRealtimeText(
+      args.language,
+      `Perfect. I have your request for ${address} for ${timeText}. We'll text the confirmation shortly.`,
+      `Parfait. J'ai bien votre demande pour ${address} pour ${timeText}. Nous vous envoyons la confirmation par SMS rapidement.`,
+    );
+  }
+
+  if (address) {
+    return localizedRealtimeText(
+      args.language,
+      `Thanks. I have the address as ${address}. We'll text the confirmation shortly.`,
+      `Merci. J'ai bien l'adresse ${address}. Nous vous envoyons la confirmation par SMS rapidement.`,
+    );
+  }
+
+  if (args.businessHasCalendar && timeText) {
+    return localizedRealtimeText(
+      args.language,
+      `Perfect. I have your preferred time ${timeText}. We'll text the confirmation shortly.`,
+      `Parfait. J'ai bien noté l'horaire ${timeText}. Nous vous envoyons la confirmation par SMS rapidement.`,
+    );
+  }
+
+  return localizedRealtimeText(
+    args.language,
+    "Thanks, I have the details. We'll text the confirmation shortly.",
+    "Merci, j'ai bien noté les détails. Nous vous envoyons la confirmation par SMS rapidement.",
+  );
+}
+
 function nextMissingRealtimeQuestion(
   state: RealtimeIntakeState,
   language: 'en' | 'fr' = 'en',
@@ -219,6 +292,13 @@ function nextMissingRealtimeQuestion(
       language,
       'What is the full service address?',
       "Quelle est l'adresse complète ?",
+    );
+  }
+  if (!state.addressConfirmed) {
+    return localizedRealtimeText(
+      language,
+      'Please repeat the street and number so I get the address right.',
+      "Pouvez-vous répéter la rue et le numéro pour que je note la bonne adresse ?",
     );
   }
   if (!state.preferredTimeWindow) {
@@ -251,6 +331,9 @@ function buildRealtimeAcknowledgement(
   if (!previous?.addressRaw && current.addressRaw) {
     return localizedRealtimeText(language, 'Thanks.', 'Merci.');
   }
+  if (!previous?.addressConfirmed && current.addressConfirmed) {
+    return localizedRealtimeText(language, 'Perfect.', 'Parfait.');
+  }
   if (!previous?.preferredTimeWindow && current.preferredTimeWindow) {
     return localizedRealtimeText(language, 'Perfect.', 'Parfait.');
   }
@@ -258,6 +341,36 @@ function buildRealtimeAcknowledgement(
     return localizedRealtimeText(language, 'Thanks.', 'Merci.');
   }
   return undefined;
+}
+
+function buildRealtimeAgentTurnInstruction(args: {
+  language: 'en' | 'fr';
+  state: RealtimeIntakeState;
+  businessHasCalendar: boolean;
+}): string {
+  const needsSlotCheck =
+    Boolean(args.state.requestedSchedule) &&
+    Boolean(args.state.issueText) &&
+    Boolean(args.state.addressRaw) &&
+    Boolean(args.state.phoneConfirmed) &&
+    args.state.requestedScheduleAvailability === undefined;
+
+  return [
+    `Handle the caller's latest turn in ${args.language === 'fr' ? 'French' : 'English'}.`,
+    'Use the available tools before answering when you need saved business facts, the current intake state, or schedule availability.',
+    'Ask only one short follow-up question when a detail is still missing.',
+    needsSlotCheck
+      ? 'Before you say a requested specific time works, call check_requested_slot.'
+      : 'If the intake is incomplete, use get_intake_state and ask only for the next missing detail.',
+    'If check_requested_slot says the time is unavailable, ask for another time.',
+    'If check_requested_slot says calendar_disabled, calendar_not_connected, or availability_unknown, do not present the time as booked. Say the team will confirm by text.',
+    'If the caller only wants business information, answer it directly and do not force service intake.',
+    'If the intake is complete and the requested time is unavailable, ask for another time.',
+    args.businessHasCalendar
+      ? "If the intake is complete and the requested time is available, close briefly and say you'll text the confirmation."
+      : "If the intake is complete, close briefly and say you'll text the confirmation.",
+    'Do not repeat a full summary unless you are correcting a conflict.',
+  ].join(' ');
 }
 
 function normalizeWebsiteUrl(value: string): string {
@@ -430,6 +543,7 @@ function buildHealthSnapshot(args: {
   calendarConfigured: boolean;
 }) {
   const issues: ReadinessIssue[] = [];
+  const apiBaseUrl = parseApiBaseUrl(args.env.API_BASE_URL);
 
   if (!args.persistence.durable) {
     issues.push({
@@ -477,6 +591,34 @@ function buildHealthSnapshot(args: {
       severity: 'warning',
       message: 'Realtime voice mode is enabled but OPENAI_API_KEY is missing, so the assistant will fall back to generic replies.',
     });
+  }
+
+  if (!apiBaseUrl) {
+    issues.push({
+      code: 'api-base-url-invalid',
+      severity: 'critical',
+      message: 'API_BASE_URL is not a valid absolute URL, so telephony callbacks cannot be built safely.',
+    });
+  } else {
+    if (isLocalhostHostname(apiBaseUrl.hostname) && args.runningInManagedRuntime) {
+      issues.push({
+        code: 'api-base-url-localhost',
+        severity: 'critical',
+        message: 'API_BASE_URL points to localhost in a managed runtime, so Twilio cannot reach the inbound call endpoints.',
+      });
+    }
+
+    if (
+      args.env.VOICE_FLOW_MODE === 'realtime' &&
+      apiBaseUrl.protocol !== 'https:' &&
+      args.env.NODE_ENV === 'production'
+    ) {
+      issues.push({
+        code: 'realtime-api-base-url-not-https',
+        severity: 'critical',
+        message: 'Realtime voice mode in production requires API_BASE_URL to use https so Twilio can connect over wss.',
+      });
+    }
   }
 
   if (!args.twilioVoiceConfigured) {
@@ -531,11 +673,24 @@ function buildHealthSnapshot(args: {
   } as const;
 }
 
+function parseApiBaseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function isLocalhostHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+}
+
 export function createApp(deps?: {
   store?: Store;
   classifier?: ClassificationService;
   sms?: SmsService;
   calendar?: CalendarService;
+  realtimeConversation?: Pick<RealtimeConversationService, 'createSession'>;
   queue?: QueueClient;
 }) {
   const app = fastify({
@@ -674,11 +829,9 @@ export function createApp(deps?: {
   }
   const classifier =
     deps?.classifier ?? new ClassificationService(env.OPENAI_API_KEY, env.OPENAI_MODEL);
-  const realtimeConversation = new RealtimeConversationService(
-    env.OPENAI_API_KEY,
-    env.REALTIME_AGENT_MODEL,
-    env.OPENAI_MODEL,
-  );
+  const realtimeConversation =
+    deps?.realtimeConversation ??
+    new RealtimeConversationService(env.OPENAI_API_KEY, env.REALTIME_AGENT_MODEL, env.OPENAI_MODEL);
   const queue: QueueClient =
     deps?.queue ??
     (useInMemoryQueue ? new InMemoryQueueClient() : new BullQueueClient(env.REDIS_URL));
@@ -826,6 +979,9 @@ export function createApp(deps?: {
       /\b(call me at|reach me at|phone number is|my number is|callback at|tel(?:ephone)?|phone)\b.*$/i;
     const streetPattern = /(rue|avenue|av\.?|route|road|street|st\.?|chemin|lane|blvd|boulevard)/i;
     const callbackPattern = /(call me at|phone number|callback|tel)/i;
+    const dateOrTimePattern =
+      /\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sep|sept|october|oct|november|nov|december|dec|today|tomorrow|demain|aujourd'hui|morning|afternoon|evening|matin|soir)\b|\b\d{1,2}\s*(am|pm)\b|\b([01]?\d|2[0-3])[:h]([0-5]\d)\b/i;
+    const schedulingPhrasePattern = /\b(works for me|available|availability|disponible|me convient)\b/i;
 
     for (const segment of segments) {
       const cleaned = segment.replace(callbackTailPattern, '').trim();
@@ -834,6 +990,9 @@ export function createApp(deps?: {
       const hasStreetKeyword = streetPattern.test(cleaned);
       const hasNumber = /\d/.test(cleaned);
       const hasLetters = /[a-z]/i.test(cleaned);
+      if (!hasStreetKeyword && (dateOrTimePattern.test(cleaned) || schedulingPhrasePattern.test(cleaned))) {
+        continue;
+      }
       if (hasStreetKeyword || (hasNumber && hasLetters)) return cleaned;
     }
 
@@ -841,6 +1000,9 @@ export function createApp(deps?: {
     const hasStreetKeyword = streetPattern.test(fallback);
     const hasNumber = /\d/.test(fallback);
     const hasLetters = /[a-z]/i.test(fallback);
+    if (!hasStreetKeyword && (dateOrTimePattern.test(fallback) || schedulingPhrasePattern.test(fallback))) {
+      return undefined;
+    }
     if (hasStreetKeyword || (hasNumber && hasLetters)) return fallback;
     return undefined;
   }
@@ -862,6 +1024,7 @@ export function createApp(deps?: {
   async function captureRealtimeUserTurn(
     callSid: string,
     userText: string,
+    referenceDate = new Date(),
   ): Promise<RealtimeIntakeState> {
     const state = realtimeStateByCallSid.get(callSid) ?? {
       addressConfirmed: false,
@@ -873,11 +1036,14 @@ export function createApp(deps?: {
     }
 
     const extractedAddress = extractAddressCandidate(normalized);
-    if (extractedAddress && !state.addressRaw) {
+    if (extractedAddress) {
       state.addressRaw = extractedAddress;
+      state.addressConfirmed = (await classifier.addressConfidence(extractedAddress)) >= 0.75;
+    } else if (state.addressRaw && !state.addressConfirmed && yesIntent(normalized)) {
+      state.addressConfirmed = true;
     }
 
-    const requestedSchedule = extractRequestedSchedule(normalized, { now: new Date() });
+    const requestedSchedule = extractRequestedSchedule(normalized, { now: referenceDate });
     if (requestedSchedule) {
       state.requestedSchedule = requestedSchedule;
       state.requestedScheduleAvailability = undefined;
@@ -1350,12 +1516,17 @@ export function createApp(deps?: {
         }
         const pendingMessages: unknown[] = [];
         let processRealtimeMessage: ((raw: unknown) => Promise<void>) | null = null;
+        let realtimeMessageQueue = Promise.resolve();
         socket.on('message', (raw: unknown) => {
           if (!processRealtimeMessage) {
             pendingMessages.push(raw);
             return;
           }
-          void processRealtimeMessage(raw);
+          realtimeMessageQueue = realtimeMessageQueue
+            .then(() => processRealtimeMessage?.(raw))
+            .catch((error) => {
+              app.log.error({ err: error, callSid }, 'realtime message queue failed');
+            });
         });
 
         const call = await store.getCallBySid(params.tenantId, callSid);
@@ -1435,12 +1606,140 @@ export function createApp(deps?: {
           realtimeLastAssistantOutputAtByCallSid.set(callSid, Date.now());
           sendRealtimeText(trimmed, true, lang);
         };
+        const realtimeTools: Record<string, RealtimeToolDefinition> = {
+          lookup_business_answer: {
+            description:
+              'Answer a caller question from the saved business details, services, FAQs, and hours.',
+            parameters: {
+              type: 'object',
+              properties: {
+                question: { type: 'string' },
+                language: { type: 'string', enum: ['en', 'fr'] },
+              },
+              required: ['question', 'language'],
+              additionalProperties: false,
+            },
+            handler: async (input) => {
+              const question = typeof input.question === 'string' ? input.question : '';
+              const language = input.language === 'fr' ? 'fr' : 'en';
+              const answer = answerBusinessQuestionFromSettings({
+                text: question,
+                language,
+                settings,
+              });
+
+              return {
+                answered: Boolean(answer),
+                answer:
+                  answer ??
+                  localizedRealtimeText(
+                    language,
+                    'I can have the team confirm that for you shortly.',
+                    "Je peux demander à l'équipe de vous le confirmer rapidement.",
+                  ),
+              };
+            },
+          },
+          get_intake_state: {
+            description:
+              'Return the current extracted intake state and the single next question still needed.',
+            parameters: {
+              type: 'object',
+              properties: {
+                language: { type: 'string', enum: ['en', 'fr'] },
+              },
+              additionalProperties: false,
+            },
+            handler: async (input) => {
+              const language =
+                input.language === 'fr' || currentSpeechLang === 'fr-FR' ? 'fr' : 'en';
+              const state = cloneRealtimeState(realtimeStateByCallSid.get(callSid)) ?? {
+                addressConfirmed: false,
+                urgent: false,
+              };
+              const missingQuestion = nextMissingRealtimeQuestion(state, language);
+
+              return {
+                issueText: state.issueText ?? null,
+                addressRaw: state.addressRaw ?? null,
+                addressConfirmed: state.addressConfirmed,
+                preferredTimeWindow: state.preferredTimeWindow ?? null,
+                requestedScheduleLabel: state.requestedSchedule?.label ?? null,
+                requestedScheduleAvailability: state.requestedScheduleAvailability ?? null,
+                phoneConfirmed: state.phoneConfirmed ?? null,
+                urgent: state.urgent,
+                urgentPendingConfirmation: Boolean(state.urgentPendingConfirmation),
+                nextQuestion: missingQuestion,
+                readyToClose: !missingQuestion,
+              };
+            },
+          },
+          check_requested_slot: {
+            description:
+              'Check whether the current requested appointment time is available for this caller.',
+            parameters: {
+              type: 'object',
+              properties: {},
+              additionalProperties: false,
+            },
+            handler: async () => {
+              const state = cloneRealtimeState(realtimeStateByCallSid.get(callSid));
+              if (!state?.requestedSchedule) {
+                return { status: 'missing_schedule' };
+              }
+
+              if (!settings.calendar_enabled) {
+                return {
+                  status: 'calendar_disabled',
+                  requestedScheduleLabel: state.requestedSchedule.label,
+                  nextAction: 'say_team_will_confirm',
+                };
+              }
+
+              const calendarConnection =
+                calendarService.isLiveProviderEnabled() || process.env.NODE_ENV === 'test'
+                  ? await store.getCalendarConnection(params.tenantId)
+                  : undefined;
+              if (!calendarConnection) {
+                return {
+                  status: 'calendar_not_connected',
+                  requestedScheduleLabel: state.requestedSchedule.label,
+                  nextAction: 'say_team_will_confirm',
+                };
+              }
+
+              try {
+                const available = await calendarService.isSlotAvailable({
+                  connection: calendarConnection,
+                  slotStart: state.requestedSchedule.slotStart,
+                  slotEnd: state.requestedSchedule.slotEnd,
+                });
+
+                state.requestedScheduleAvailability = available ? 'available' : 'unavailable';
+                realtimeStateByCallSid.set(callSid, state);
+
+                return {
+                  status: available ? 'available' : 'unavailable',
+                  requestedScheduleLabel: state.requestedSchedule.label,
+                  nextAction: available ? 'close_with_confirmation' : 'ask_for_another_time',
+                };
+              } catch {
+                return {
+                  status: 'availability_unknown',
+                  requestedScheduleLabel: state.requestedSchedule.label,
+                  nextAction: 'say_team_will_confirm',
+                };
+              }
+            },
+          },
+        };
         const realtimeSession = realtimeConversation.createSession({
           businessName: settings.business_name,
           knowledgeInstruction: buildKnowledgeInstruction(settings),
           escalationPhone: settings.escalation_phone,
           callbackSlaMinutes: settings.callback_sla_minutes,
           languages: settings.languages,
+          tools: realtimeTools,
           onTextDelta: (token) => {
             assistantBuffer += token;
             sendRealtimeText(token, false);
@@ -1497,6 +1796,16 @@ export function createApp(deps?: {
                 detectedLanguage === 'fr' && supportedRealtimeLanguages.includes('fr')
                   ? 'fr-FR'
                   : 'en-US';
+              if (isLikelyUnclearRealtimeTranscript(userText)) {
+                sendAssistantMessage(
+                  localizedRealtimeText(
+                    detectedLanguage,
+                    'I did not catch that clearly. Please repeat the last detail.',
+                    "Je n'ai pas bien compris. Pouvez-vous répéter le dernier détail ?",
+                  ),
+                );
+                return;
+              }
               const lastAssistantText = [...(realtimeTranscriptByCallSid.get(callSid) ?? [])]
                 .reverse()
                 .find((turn) => turn.role === 'assistant')?.text;
@@ -1511,9 +1820,10 @@ export function createApp(deps?: {
 
               const previousState = cloneRealtimeState(realtimeStateByCallSid.get(callSid));
               const transcript = addRealtimeTurn(callSid, { role: 'user', text: userText });
-              const intakeState = await captureRealtimeUserTurn(callSid, userText);
+              const intakeState = await captureRealtimeUserTurn(callSid, userText, call.createdAt);
               const callerNeedsService = hasActiveRealtimeServiceNeed(intakeState);
               const smallTalk = isSmallTalkText(userText);
+              const informationalQuestion = looksLikeInformationalQuestion(userText);
               const directBusinessAnswer = isBusinessQuestion(userText)
                 ? answerBusinessQuestionFromSettings({
                     text: userText,
@@ -1534,6 +1844,18 @@ export function createApp(deps?: {
                     "I'm well, thanks. How can I help you today?",
                     "Je vais bien, merci. Comment puis-je vous aider aujourd'hui ?",
                   ),
+                );
+                return;
+              }
+
+              if (informationalQuestion && !callerNeedsService) {
+                sendAssistantMessage(
+                  directBusinessAnswer ||
+                    localizedRealtimeText(
+                      detectedLanguage,
+                      'I can have the team confirm that for you shortly.',
+                      "Je peux demander à l'équipe de vous le confirmer rapidement.",
+                    ),
                 );
                 return;
               }
@@ -1575,8 +1897,16 @@ export function createApp(deps?: {
                 return;
               }
 
-              if (directBusinessAnswer && !callerNeedsService) {
-                sendAssistantMessage(directBusinessAnswer);
+              const openAiHandledTurn =
+                realtimeSession?.sendUserTurn(
+                  userText,
+                  buildRealtimeAgentTurnInstruction({
+                    language: detectedLanguage,
+                    state: intakeState,
+                    businessHasCalendar: settings.calendar_enabled,
+                  }),
+                ) ?? false;
+              if (openAiHandledTurn) {
                 return;
               }
 
@@ -1609,126 +1939,65 @@ export function createApp(deps?: {
               }
 
               if (intakeState.urgentPendingConfirmation && !intakeState.urgent && missingQuestion) {
-                const responseInstruction = `Reply in ${
-                  detectedLanguage === 'fr' ? 'French' : 'English'
-                } only. In one short sentence, ask the caller to confirm whether they need the on-call team right now. Do not transfer or end the call yet.`;
-                if (realtimeSession?.isConnected() && realtimeSession.sendUserTurn(userText, responseInstruction)) {
-                  return;
-                }
-                const answer = await realtimeConversation.reply({
-                  businessName: settings.business_name,
-                  knowledgeInstruction: buildKnowledgeInstruction(settings),
-                  escalationPhone: settings.escalation_phone,
-                  callbackSlaMinutes: settings.callback_sla_minutes,
-                  languages: settings.languages,
-                  transcript,
-                  userText,
-                  responseInstruction,
-                  currentLanguage: detectedLanguage,
-                });
-                sendAssistantMessage(answer || missingQuestion);
+                sendAssistantMessage(
+                  localizedRealtimeText(
+                    detectedLanguage,
+                    'Just to confirm, do you need the on-call team right now?',
+                    "Juste pour confirmer, avez-vous besoin de l'équipe d'urgence tout de suite ?",
+                  ),
+                );
                 return;
               }
 
               if (directBusinessAnswer && callerNeedsService) {
-                const deterministicAnswer = missingQuestion
+                sendAssistantMessage(
+                  missingQuestion
                   ? `${directBusinessAnswer} ${missingQuestion}`
                   : `${directBusinessAnswer} ${localizedRealtimeText(
                       detectedLanguage,
-                      "Thanks, I have what I need. We'll send confirmation shortly.",
-                      "Merci, j'ai tout ce qu'il faut. Nous enverrons la confirmation rapidement.",
-                    )}`;
-                const responseInstruction = missingQuestion
-                  ? `Reply in ${
-                      detectedLanguage === 'fr' ? 'French' : 'English'
-                    } only. Answer the caller's business question first using this exact information: ${directBusinessAnswer} Then ask exactly this next question in one short sentence: ${missingQuestion}`
-                  : `Reply in ${
-                      detectedLanguage === 'fr' ? 'French' : 'English'
-                    } only. Answer the caller's business question first using this exact information: ${directBusinessAnswer} Then briefly confirm that the request details are captured and that confirmation will be sent shortly.`;
-                if (realtimeSession?.isConnected() && realtimeSession.sendUserTurn(userText, responseInstruction)) {
-                  return;
-                }
-                const answer = await realtimeConversation.reply({
-                  businessName: settings.business_name,
-                  knowledgeInstruction: buildKnowledgeInstruction(settings),
-                  escalationPhone: settings.escalation_phone,
-                  callbackSlaMinutes: settings.callback_sla_minutes,
-                  languages: settings.languages,
-                  transcript,
-                  userText,
-                  responseInstruction,
-                  currentLanguage: detectedLanguage,
-                  directAnswer: directBusinessAnswer,
-                });
-                sendAssistantMessage(answer || deterministicAnswer);
+                      "Thanks, I have what I need. We'll text the confirmation shortly.",
+                      "Merci, j'ai tout ce qu'il faut. Nous vous envoyons la confirmation par SMS rapidement.",
+                    )}`,
+                );
                 return;
               }
 
-              let deterministicAnswer: string;
-              let responseInstruction: string;
               if (missingQuestion) {
-                deterministicAnswer = acknowledgement
-                  ? `${acknowledgement} ${missingQuestion}`
-                  : missingQuestion;
-                responseInstruction = `Reply in ${
-                  detectedLanguage === 'fr' ? 'French' : 'English'
-                } only. Keep it to one short sentence. ${
-                  acknowledgement ? `Start with this brief acknowledgement: ${acknowledgement}. ` : ''
-                }Ask exactly this next intake question: ${missingQuestion}. Do not ask for anything else yet.`;
-              } else if (intakeState.requestedScheduleAvailability === 'unavailable') {
-                deterministicAnswer = localizedRealtimeText(
-                  detectedLanguage,
-                  "That exact time isn't available. What other time works for you?",
-                  "Cet horaire précis n'est pas disponible. Quel autre horaire vous conviendrait ?",
+                sendAssistantMessage(
+                  acknowledgement ? `${acknowledgement} ${missingQuestion}` : missingQuestion,
                 );
-                responseInstruction = `Reply in ${
-                  detectedLanguage === 'fr' ? 'French' : 'English'
-                } only. Briefly explain that the requested time is unavailable and ask for one alternative time.`;
-              } else if (intakeState.requestedScheduleAvailability === 'available') {
-                deterministicAnswer = localizedRealtimeText(
-                  detectedLanguage,
-                  "Perfect. That time is available. We'll send your confirmation shortly.",
-                  'Parfait. Cet horaire est disponible. Nous vous envoyons la confirmation rapidement.',
-                );
-                responseInstruction = `Reply in ${
-                  detectedLanguage === 'fr' ? 'French' : 'English'
-                } only. Briefly confirm that the requested time is available and that confirmation will be sent shortly.`;
-              } else {
-                deterministicAnswer = localizedRealtimeText(
-                  detectedLanguage,
-                  "Thanks, I have the details. We'll send confirmation shortly.",
-                  "Merci, j'ai bien noté les détails. Nous envoyons la confirmation rapidement.",
-                );
-                responseInstruction = `Reply in ${
-                  detectedLanguage === 'fr' ? 'French' : 'English'
-                } only. Briefly confirm the captured details and say the team will send confirmation shortly. Do not invent missing details.`;
+                return;
               }
 
-              if (realtimeSession) {
-                if (realtimeSession.isConnected()) {
-                  const accepted = realtimeSession.sendUserTurn(userText, responseInstruction);
-                  if (accepted) return;
-                } else {
-                  await new Promise((resolve) => setTimeout(resolve, 120));
-                  if (realtimeSession.isConnected()) {
-                    const accepted = realtimeSession.sendUserTurn(userText, responseInstruction);
-                    if (accepted) return;
-                  }
-                }
+              if (intakeState.requestedScheduleAvailability === 'unavailable') {
+                sendAssistantMessage(
+                  localizedRealtimeText(
+                    detectedLanguage,
+                    "That exact time isn't available. What other time works for you?",
+                    "Cet horaire précis n'est pas disponible. Quel autre horaire vous conviendrait ?",
+                  ),
+                );
+                return;
               }
 
-              const answer = await realtimeConversation.reply({
-                businessName: settings.business_name,
-                knowledgeInstruction: buildKnowledgeInstruction(settings),
-                escalationPhone: settings.escalation_phone,
-                callbackSlaMinutes: settings.callback_sla_minutes,
-                languages: settings.languages,
-                transcript,
-                userText,
-                responseInstruction,
-                currentLanguage: detectedLanguage,
-              });
-              sendAssistantMessage(answer || deterministicAnswer);
+              if (intakeState.requestedScheduleAvailability === 'available') {
+                sendAssistantMessage(
+                  buildRealtimeCompletionMessage({
+                    language: detectedLanguage,
+                    state: intakeState,
+                    businessHasCalendar: settings.calendar_enabled,
+                  }),
+                );
+                return;
+              }
+
+              sendAssistantMessage(
+                buildRealtimeCompletionMessage({
+                  language: detectedLanguage,
+                  state: intakeState,
+                  businessHasCalendar: settings.calendar_enabled,
+                }),
+              );
               return;
             }
 
@@ -1739,7 +2008,7 @@ export function createApp(deps?: {
                   ? 'fr-FR'
                   : currentSpeechLang;
               addRealtimeTurn(callSid, { role: 'user', text: interruptText });
-              await captureRealtimeUserTurn(callSid, interruptText);
+              await captureRealtimeUserTurn(callSid, interruptText, call.createdAt);
               realtimeSession?.cancelResponse();
               return;
             }
@@ -1767,10 +2036,11 @@ export function createApp(deps?: {
         }
 
         socket.on('close', () => {
-          realtimeSession?.close();
-          const transcriptSnapshot = [...(realtimeTranscriptByCallSid.get(callSid) ?? [])];
-          const intakeSnapshot = realtimeStateByCallSid.get(callSid);
           void (async () => {
+            await realtimeMessageQueue.catch(() => undefined);
+            realtimeSession?.close();
+            const transcriptSnapshot = [...(realtimeTranscriptByCallSid.get(callSid) ?? [])];
+            const intakeSnapshot = realtimeStateByCallSid.get(callSid);
             let finalizedSuccessfully = false;
             try {
               if (!transferRequested) {

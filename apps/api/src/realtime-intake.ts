@@ -136,6 +136,26 @@ export function shouldCaptureIssueText(text: string): boolean {
   return true;
 }
 
+export function isLikelyUnclearRealtimeTranscript(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return true;
+
+  if (
+    /^(?:\[(?:noise|static|inaudible|unintelligible|silence|crosstalk)\]|<unk>|unknown|noise|static|inaudible|unintelligible)$/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  if (/^(?:uh|um|hmm|hm|mm|mmm|\.\.\.)$/.test(normalized)) {
+    return true;
+  }
+
+  const lettersAndDigits = normalized.replace(/[^a-z0-9àâçéèêëîïôûùüÿñæœ]/gi, '');
+  return lettersAndDigits.length < 3;
+}
+
 export function inferTimeWindowFromText(text: string): TimeWindow | undefined {
   const normalized = text.toLowerCase();
   if (normalized.includes('morning') || normalized.includes('matin')) return 'morning';
