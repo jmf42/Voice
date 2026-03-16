@@ -2,6 +2,7 @@ import { parseEnv } from '@dispatchos/config';
 import twilio from 'twilio';
 import type { Worker } from 'bullmq';
 import { QueueManager, type QueueJobPayload, type QueueName } from './queues.js';
+import { buildWorkerRuntimeSummary } from './runtime.js';
 
 function isTwilioConfigured(accountSid: string, authToken: string, phone: string): boolean {
   return !accountSid.startsWith('AC_TEST') && authToken !== 'token' && !phone.includes('00000000');
@@ -28,6 +29,23 @@ async function main() {
   const twilioClient = isTwilioConfigured(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN, env.TWILIO_PHONE_NUMBER)
     ? twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN)
     : null;
+  const runtime = buildWorkerRuntimeSummary({
+    nodeEnv: env.NODE_ENV,
+    queueMode: env.QUEUE_MODE,
+    managedRuntime: Boolean(process.env.K_SERVICE || process.env.K_REVISION || process.env.RENDER),
+    twilioConfigured: Boolean(twilioClient),
+  });
+
+  const criticalIssue = runtime.issues.find((issue) => issue.severity === 'critical');
+  if (criticalIssue) {
+    throw new Error(criticalIssue.message);
+  }
+
+  for (const issue of runtime.issues) {
+    if (issue.severity === 'warning') {
+      console.warn(issue.message);
+    }
+  }
 
   async function sendToDeadLetter(name: QueueName, payload: QueueJobPayload, message: string): Promise<void> {
     await manager.enqueue('dead-letter', {
@@ -91,7 +109,7 @@ async function main() {
   attachFailureHook('calendar-write', calendarWorker);
   attachFailureHook('transcript-persist', transcriptWorker);
 
-  console.log('DispatchOS worker running');
+  console.log('DispatchOS worker running', runtime);
 
   const shutdown = async () => {
     await Promise.all([smsWorker.close(), calendarWorker.close(), transcriptWorker.close()]);

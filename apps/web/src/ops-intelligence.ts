@@ -54,13 +54,13 @@ export function buildQAAssistantBrief(snapshot: QAQueueSnapshot): QAAssistantBri
   if (snapshot.failedEscalationCount > 0) {
     return {
       severity: 'alert',
-      headline: `Critical: ${snapshot.failedEscalationCount} failed escalations`,
+      headline: `Immediate attention needed: ${snapshot.failedEscalationCount} failed handoff${snapshot.failedEscalationCount === 1 ? '' : 's'}`,
       summary:
-        'The AI failed to route urgent calls to a human. This is a severe failure for the client. Review immediately and contact the client if necessary.',
+        'At least one urgent caller was not routed to a person correctly. Review these calls immediately and confirm the handoff number is correct.',
       actions: [
-        `Review the ${snapshot.failedEscalationCount} failed escalation transcripts now.`,
-        'Check escalation phone numbers in Client Settings.',
-        'If it was a technical failure, update the fallback intent.',
+        `Review the ${snapshot.failedEscalationCount} failed handoff transcript${snapshot.failedEscalationCount === 1 ? '' : 's'} now.`,
+        'Check the urgent handoff number in Settings.',
+        'Confirm backup routing is still working.',
       ],
     };
   }
@@ -68,17 +68,19 @@ export function buildQAAssistantBrief(snapshot: QAQueueSnapshot): QAAssistantBri
   if (snapshot.hallucinationCount > 0 || snapshot.missedBookingCount > 0) {
     return {
       severity: 'alert',
-      headline: `Immediate attention needed: ${snapshot.hallucinationCount} hallucinations, ${snapshot.missedBookingCount} missed bookings`,
+      headline: `Immediate attention needed: ${snapshot.hallucinationCount} answer issue${snapshot.hallucinationCount === 1 ? '' : 's'}, ${snapshot.missedBookingCount} missed booking${snapshot.missedBookingCount === 1 ? '' : 's'}`,
       summary:
-        'The knowledge base or prompt instructions are failing to capture intent correctly.',
+        'Some recent calls may need review because answers were unclear or booking opportunities were missed.',
       actions: [
         snapshot.hallucinationCount > 0
-          ? `Review 2 hallucinations by updating the FAQs.`
-          : 'FAQ matching is currently stable.',
+          ? `Review ${snapshot.hallucinationCount} hallucination${snapshot.hallucinationCount === 1 ? '' : 's'} and update FAQs or business notes if needed.`
+          : 'Answers look stable.',
         snapshot.missedBookingCount > 0
-          ? `Review ${snapshot.missedBookingCount} missed booking opportunities.`
-          : 'Booking success rate is stable.',
-        `Clear the ${snapshot.pendingReviewCount} remaining calls in the queue.`,
+          ? `Review ${snapshot.missedBookingCount} missed booking opportunit${snapshot.missedBookingCount === 1 ? 'y' : 'ies'}.`
+          : 'Booking capture looks stable.',
+        snapshot.pendingReviewCount > 0
+          ? `Clear the ${snapshot.pendingReviewCount} remaining call review${snapshot.pendingReviewCount === 1 ? '' : 's'}.`
+          : 'No pending call reviews.',
       ],
     };
   }
@@ -87,11 +89,11 @@ export function buildQAAssistantBrief(snapshot: QAQueueSnapshot): QAAssistantBri
     severity: 'ok',
     headline: 'Queue is healthy',
     summary:
-      'No critical errors detected in recent calls. The agent is strictly following the knowledge base.',
+      'Recent calls look stable, with no urgent review issues detected.',
     actions: [
       snapshot.pendingReviewCount > 0
-        ? `Review ${snapshot.pendingReviewCount} recent calls.`
-        : 'All calls have been reviewed.',
+        ? `Review ${snapshot.pendingReviewCount} recent call${snapshot.pendingReviewCount === 1 ? '' : 's'}.`
+        : 'All recent calls have been reviewed.',
       `Total calls processed: ${snapshot.totalCallsReviewed}`,
     ],
   };

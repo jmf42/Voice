@@ -125,8 +125,9 @@ pnpm --filter @dispatchos/web dev
 - `QUEUE_MODE=redis`
 - `ALLOW_INMEMORY_STORE=false`
 - `ALLOW_DEV_AUTH_TOKEN=false`
+- `BOOTSTRAP_DEMO_TENANT=false`
 - `VOICE_FLOW_MODE=guided` (or `realtime` to enable full conversational call handling)
-- `REALTIME_AGENT_MODEL=gpt-realtime-mini`
+- `REALTIME_AGENT_MODEL=gpt-realtime-1.5`
 
 ## Login and onboarding flow
 
@@ -160,6 +161,7 @@ Also monitor:
 1. Twilio call + messaging logs for delivery/transfer failures.
 2. API logs for webhook validation, escalation fallbacks, and retries.
 3. Queue health (retries / dead-letter entries) in worker logs.
+4. API health endpoint at `/health` should report `productionSafe: true` with no critical issues.
 
 Emergency rollback:
 
@@ -197,6 +199,21 @@ pnpm audit --prod --audit-level=high
 - `GET /v1/calendar/google/start`
 - `GET /v1/calendar/google/callback`
 - `POST /v1/onboarding/test-call`
+
+## Production readiness checks
+
+Use `GET /health` for a non-secret runtime snapshot. It now reports:
+
+- durable vs in-memory persistence
+- durable vs in-memory queue mode
+- whether dev bearer auth is still enabled
+- whether OpenAI, Twilio, and Google Calendar providers are configured
+- whether demo tenant bootstrapping is still turned on
+
+The endpoint is still a liveness check, so it returns `ok: true` even when readiness is degraded. For production, look for:
+
+- `readiness.productionSafe = true`
+- no `critical` issues
 
 ## Notes
 

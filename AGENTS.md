@@ -104,6 +104,7 @@ The current Google Cloud SQL instance attached to production is `dispatchos-pg` 
 - `STORE_MODE=prisma`
 - `QUEUE_MODE=redis`
 - `ALLOW_INMEMORY_STORE=false`
+- `BOOTSTRAP_DEMO_TENANT=false`
 - `DATABASE_URL`
 - `REDIS_URL`
 
@@ -126,6 +127,21 @@ pnpm --filter @dispatchos/api lint
 pnpm --filter @dispatchos/web lint
 pnpm build
 ```
+
+## Health and readiness
+
+The API exposes `GET /health` as a public liveness plus readiness snapshot. It returns:
+
+- whether persistence is `memory` or `database`
+- whether the queue is `memory` or `redis`
+- whether production-safe auth is active
+- whether OpenAI, Twilio, and Google Calendar are configured
+- whether demo tenant bootstrapping is enabled
+
+For production, the target state is:
+
+- `readiness.productionSafe = true`
+- no critical issues in `readiness.issues`
 
 ## Deployment notes
 

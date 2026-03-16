@@ -214,7 +214,7 @@ export function CalendarPage() {
                             <a href={`tel:${apt.caller_phone}`}>
                               <Icon name="phone" size={12} /> {apt.caller_phone}
                             </a>
-                            {apt.callId ? <Link to={`/calls/${apt.callId}`}>View call</Link> : null}
+                            {apt.callId ? <Link to={`/calls/${apt.id}`}>View call</Link> : null}
                             {apt.status === 'needs_manual_booking' ? (
                               <span className="ops-pill overdue">
                                 <Icon name="alert" size={11} /> Still needs booking

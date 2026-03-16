@@ -45,21 +45,21 @@ function Section({
 const CAPABILITIES = [
   {
     icon: <PhoneCall className="h-6 w-6" />,
-    title: 'Answer every call',
+    title: 'Catch the jobs you usually miss',
     description:
-      'Voice picks up after-hours, overflow, and missed desk calls so new customers do not hit voicemail.',
+      'Voice answers after-hours, overflow, and missed desk calls before a caller gives up and moves to the next business.',
   },
   {
     icon: <CalendarCheck className="h-6 w-6" />,
-    title: 'Qualify and schedule',
+    title: 'Turn calls into booked work',
     description:
-      'The assistant captures the customer request, checks availability, and books the job when a time is confirmed.',
+      'The assistant captures the request, qualifies the job, and books the work when a time is confirmed.',
   },
   {
     icon: <ShieldCheck className="h-6 w-6" />,
-    title: 'Escalate the urgent ones',
+    title: 'Keep urgent revenue moving',
     description:
-      'Urgent calls can be routed to a real person immediately while routine bookings stay automated.',
+      'Urgent calls can be routed to a real person immediately while routine jobs stay handled automatically.',
   },
 ];
 
@@ -81,9 +81,9 @@ const STEPS = [
   {
     number: '03',
     icon: <CalendarCheck className="h-5 w-5" />,
-    title: 'Let it answer, book, and update your team',
+    title: 'Let it answer, save the lead, and update your team',
     description:
-      'Calls turn into clear summaries, new jobs, and calendar-ready bookings in one shared workspace.',
+      'Calls turn into clear summaries, new jobs, and calendar-ready bookings instead of missed opportunities.',
   },
 ];
 
@@ -131,7 +131,7 @@ export function LandingPage() {
               <Mic className="h-5 w-5" />
             </div>
             <div className="flex flex-col">
-            <span className="text-[1.15rem] font-bold tracking-[-0.03em]">
+            <span className="text-[1.05rem] font-bold tracking-[-0.02em]">
               Voice
             </span>
             <span className="text-[0.68rem] uppercase tracking-[0.28em] text-[#d2d8e2]">
@@ -182,7 +182,7 @@ export function LandingPage() {
                 initial={reduceMotion ? false : { opacity: 0, y: 18 }}
                 animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
                 transition={reduceMotion ? undefined : { duration: 0.45 }}
-                className="mb-6 inline-flex items-center gap-3 rounded-full border border-white/[0.12] bg-white/[0.06] px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#00f3ff]"
+                className="mb-6 inline-flex items-center gap-3 rounded-full border border-white/[0.12] bg-white/[0.06] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-400"
               >
                 <span className="h-2 w-2 rounded-full bg-[#00f3ff]" />
                 Built for local service teams
@@ -192,19 +192,19 @@ export function LandingPage() {
                 initial={reduceMotion ? false : { opacity: 0, y: 28 }}
                 animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
                 transition={reduceMotion ? undefined : { duration: 0.65, delay: 0.08 }}
-                className="mb-6 text-[clamp(3rem,7vw,6.2rem)] font-extrabold leading-[0.95] tracking-[-0.05em] text-white"
+                className="mb-6 max-w-4xl bg-gradient-to-r from-white to-gray-400 bg-clip-text text-[clamp(2.6rem,5vw,4.2rem)] font-bold leading-[1.02] tracking-[-0.04em] text-transparent"
               >
-                AI phone answering for service businesses
+                Never lose a job because you missed a call
               </motion.h1>
 
               <motion.p
                 initial={reduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
                 transition={reduceMotion ? undefined : { duration: 0.55, delay: 0.16 }}
-                className="mb-8 max-w-2xl text-lg leading-8 text-[#d8dee8] md:text-xl"
+                className="mb-8 max-w-2xl text-base leading-7 text-gray-400 md:text-lg"
               >
-                Voice answers every call, captures what the customer needs, and books the job or
-                hands urgent calls to your team right away.
+                Voice answers missed, after-hours, and overflow calls so your business keeps
+                winning work even when nobody can pick up the phone.
               </motion.p>
 
               <motion.div
@@ -215,13 +215,13 @@ export function LandingPage() {
               >
                 <Link
                   to="/login"
-                  className="inline-flex items-center justify-center gap-3 rounded-full border border-[#00f3ff]/35 bg-[#00f3ff]/12 px-7 py-4 text-base font-bold text-white shadow-[0_18px_48px_rgba(0,243,255,0.16)] transition hover:-translate-y-0.5 hover:bg-[#00f3ff]/18 hover:text-white"
+                  className="inline-flex items-center justify-center gap-3 rounded-full border border-[#00f3ff]/35 bg-[#00f3ff]/12 px-7 py-4 text-sm font-semibold text-white shadow-[0_18px_48px_rgba(0,243,255,0.16)] transition hover:-translate-y-0.5 hover:bg-[#00f3ff]/18 hover:text-white"
                 >
                   Start setup <ArrowRight className="h-5 w-5" />
                 </Link>
                 <a
                   href="#system"
-                  className="inline-flex items-center justify-center rounded-full border border-white/[0.16] bg-white/[0.07] px-7 py-4 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:border-white/[0.28] hover:bg-white/[0.12]"
+                  className="inline-flex items-center justify-center rounded-full border border-white/[0.16] bg-white/[0.07] px-7 py-4 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:border-white/[0.28] hover:bg-white/[0.12]"
                 >
                   See how it works
                 </a>
@@ -231,7 +231,7 @@ export function LandingPage() {
                 initial={reduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
                 transition={reduceMotion ? undefined : { duration: 0.55, delay: 0.32 }}
-                className="flex flex-wrap gap-3 text-sm text-[#d6dde8]"
+                className="flex flex-wrap gap-3 text-sm text-gray-400"
               >
                 {['Plumbers', 'Salons', 'Clinics', 'Restaurants', 'Field service teams'].map(
                   (item) => (
@@ -256,11 +256,11 @@ export function LandingPage() {
               <div className="relative overflow-hidden rounded-[32px] border border-white/[0.12] bg-black/40 p-6 shadow-[0_30px_90px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
                 <div className="mb-6 flex items-center justify-between">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.26em] text-[#8ea1b8]">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                       Example call flow
                     </p>
-                    <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">
-                      New booking handled without voicemail
+                    <h2 className="mt-2 text-xl font-bold text-white">
+                      A missed call becomes a booked job
                     </h2>
                   </div>
                   <div className="rounded-full border border-[#00f3ff]/30 bg-[#00f3ff]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-[#8ff7ff]">
@@ -270,26 +270,26 @@ export function LandingPage() {
 
                 <div className="space-y-4 rounded-[28px] border border-white/8 bg-white/[0.04] p-5">
                   {[
-                    'Customer calls after hours asking for a next-day appointment.',
-                    'Voice confirms service type, location, and preferred time.',
-                    'Urgent requests can route to your on-call phone immediately.',
-                    'Confirmed jobs appear as a summary with a booking-ready next step.',
+                    'Customer calls when your team is busy and would normally hit voicemail.',
+                    'Voice answers immediately and keeps the caller from moving to a competitor.',
+                    'It confirms the service, location, urgency, and preferred time.',
+                    'Your team gets a summary and a booking-ready next step instead of a lost lead.',
                   ].map((line) => (
                     <div key={line} className="flex items-start gap-3 rounded-2xl bg-white/5 p-4">
                       <div className="mt-0.5 rounded-full bg-[#00f3ff]/12 p-2 text-[#00f3ff]">
                         <CheckCircle2 className="h-4 w-4" />
                       </div>
-                      <p className="text-sm leading-6 text-[#e0e7f0]">{line}</p>
+                    <p className="text-sm leading-6 text-gray-400">{line}</p>
                     </div>
                   ))}
                 </div>
 
                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
                   <div className="rounded-[24px] border border-white/8 bg-white/[0.05] p-5">
-                    <p className="mb-3 text-xs uppercase tracking-[0.22em] text-[#8ea1b8]">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                       What it captures
                     </p>
-                    <ul className="space-y-3 text-sm text-[#dce3ed]">
+                    <ul className="space-y-3 text-sm text-gray-400">
                       <li className="flex items-center gap-3">
                         <PhoneCall className="h-4 w-4 text-[#f4c37d]" />
                         Caller details and call summary
@@ -306,10 +306,10 @@ export function LandingPage() {
                   </div>
 
                   <div className="rounded-[24px] border border-white/8 bg-[#f4c37d]/10 p-5">
-                    <p className="mb-3 text-xs uppercase tracking-[0.22em] text-[#00f3ff]">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                       Best for
                     </p>
-                    <p className="text-sm leading-7 text-[#f7f0e4]">
+                    <p className="text-sm leading-6 text-gray-400">
                       Teams that lose leads when the phone rings during jobs, lunch, after-hours,
                       or peak scheduling windows.
                     </p>
@@ -325,15 +325,15 @@ export function LandingPage() {
           className="relative mx-auto max-w-7xl px-6 py-14 scroll-mt-28"
         >
           <div className="mb-12 max-w-3xl">
-            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.24em] text-[#00f3ff]">
+            <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
               Capabilities
             </p>
-            <h2 className="mb-4 text-4xl font-extrabold tracking-[-0.04em] text-white md:text-5xl">
+            <h2 className="mb-4 text-3xl font-bold text-white">
               Clear value, not generic AI promises
             </h2>
-            <p className="text-lg leading-8 text-[#d5dce7]">
-              The product is simple: answer calls, collect the right information, and move the
-              customer to a booking or the right human.
+            <p className="text-sm leading-7 text-gray-400">
+              The promise is simple: when the phone rings and your team cannot answer, Voice keeps
+              that caller from turning into lost revenue.
             </p>
           </div>
 
@@ -344,10 +344,10 @@ export function LandingPage() {
                   <div className="mb-6 inline-flex rounded-2xl border border-[#00f3ff]/24 bg-[#00f3ff]/10 p-3 text-[#00f3ff]">
                     {item.icon}
                   </div>
-                  <h3 className="mb-3 text-2xl font-semibold tracking-[-0.03em] text-white">
+                  <h3 className="mb-3 text-xl font-bold text-white">
                     {item.title}
                   </h3>
-                  <p className="text-base leading-7 text-[#d6dde8]">{item.description}</p>
+                  <p className="text-sm leading-7 text-gray-400">{item.description}</p>
                 </div>
               </Section>
             ))}
@@ -357,15 +357,15 @@ export function LandingPage() {
         <Section id="system" className="relative mx-auto max-w-7xl px-6 py-16 scroll-mt-28">
           <div className="grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
             <div className="max-w-2xl">
-              <p className="mb-4 text-sm font-semibold uppercase tracking-[0.24em] text-[#00f3ff]">
+              <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                 System
               </p>
-              <h2 className="mb-4 text-4xl font-extrabold tracking-[-0.04em] text-white md:text-5xl">
+              <h2 className="mb-4 text-3xl font-bold text-white">
                 Set it up once, then let it keep the phone moving
               </h2>
-              <p className="text-lg leading-8 text-[#d5dce7]">
-                Voice is designed for operators, not engineers. The setup follows the way your
-                team already works: services, hours, calendar, and who should get the urgent calls.
+              <p className="text-sm leading-7 text-gray-400">
+                Voice is designed to stop the usual leak in service businesses: jobs lost because
+                nobody answered in time. Setup follows the way your team already works.
               </p>
             </div>
 
@@ -382,10 +382,10 @@ export function LandingPage() {
                       </div>
                     </div>
                     <div>
-                      <h3 className="mb-2 text-2xl font-semibold tracking-[-0.03em] text-white">
+                      <h3 className="mb-2 text-xl font-bold text-white">
                         {step.title}
                       </h3>
-                      <p className="text-base leading-7 text-[#d6dde8]">{step.description}</p>
+                      <p className="text-sm leading-7 text-gray-400">{step.description}</p>
                     </div>
                   </div>
                 </Section>
@@ -396,15 +396,15 @@ export function LandingPage() {
 
         <Section id="metrics" className="relative mx-auto max-w-7xl px-6 py-16 scroll-mt-28">
           <div className="mb-12 max-w-3xl">
-            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.24em] text-[#00f3ff]">
+            <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
               Metrics
             </p>
-            <h2 className="mb-4 text-4xl font-extrabold tracking-[-0.04em] text-white md:text-5xl">
+            <h2 className="mb-4 text-3xl font-bold text-white">
               What the product improves on day one
             </h2>
-            <p className="text-lg leading-8 text-[#d5dce7]">
-              These are the outcomes the landing page should make obvious: better call coverage,
-              clearer handoffs, and fewer lost booking opportunities.
+            <p className="text-sm leading-7 text-gray-400">
+              These are the outcomes the page should make obvious: more answered calls, fewer lost
+              leads, and a clearer path from phone call to booked work.
             </p>
           </div>
 
@@ -415,13 +415,13 @@ export function LandingPage() {
                   <div className="mb-5 inline-flex rounded-2xl border border-[#00f3ff]/22 bg-[#00f3ff]/10 p-3 text-[#8ff7ff]">
                     {metric.icon}
                   </div>
-                  <p className="mb-2 text-4xl font-semibold tracking-[-0.04em] text-white">
+                  <p className="mb-2 text-3xl font-bold text-white">
                     {metric.value}
                   </p>
-                  <p className="mb-3 text-sm font-semibold uppercase tracking-[0.24em] text-[#8ea1b8]">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                     {metric.label}
                   </p>
-                  <p className="text-sm leading-7 text-[#d6dde8]">{metric.detail}</p>
+                  <p className="text-sm leading-7 text-gray-400">{metric.detail}</p>
                 </div>
               </Section>
             ))}
@@ -432,28 +432,28 @@ export function LandingPage() {
           <div className="mx-auto max-w-5xl rounded-[36px] border border-white/10 bg-black/40 p-8 shadow-[0_28px_80px_rgba(0,0,0,0.25)] backdrop-blur-2xl md:p-12">
             <div className="grid gap-8 md:grid-cols-[1.05fr_auto] md:items-center">
               <div>
-                <p className="mb-4 text-sm font-semibold uppercase tracking-[0.24em] text-[#00f3ff]">
+                <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                   Ready to see your setup
                 </p>
-                <h2 className="mb-4 text-4xl font-extrabold tracking-[-0.04em] text-white md:text-5xl">
-                  Stop sending customers to voicemail
+                <h2 className="mb-4 text-3xl font-bold text-white">
+                  Stop letting missed calls turn into missed jobs
                 </h2>
-                <p className="max-w-2xl text-lg leading-8 text-[#eef3f8]">
-                  Use Voice to answer more calls, book more work, and keep urgent requests moving
-                  to the right person.
+                <p className="max-w-2xl text-sm leading-7 text-gray-400">
+                  Use Voice to protect the calls you cannot answer, book more work, and keep urgent
+                  requests moving to the right person.
                 </p>
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row md:flex-col">
                 <Link
                   to="/login"
-                  className="inline-flex items-center justify-center gap-3 rounded-full border border-[#00f3ff]/35 bg-[#00f3ff]/12 px-7 py-4 text-base font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#00f3ff]/18 hover:text-white"
+                  className="inline-flex items-center justify-center gap-3 rounded-full border border-[#00f3ff]/35 bg-[#00f3ff]/12 px-7 py-4 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[#00f3ff]/18 hover:text-white"
                 >
                   Start setup <ArrowRight className="h-5 w-5" />
                 </Link>
                 <a
                   href="#capabilities"
-                  className="inline-flex items-center justify-center rounded-full border border-white/[0.18] bg-white/[0.08] px-7 py-4 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:border-white/[0.3] hover:bg-white/[0.12]"
+                  className="inline-flex items-center justify-center rounded-full border border-white/[0.18] bg-white/[0.08] px-7 py-4 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:border-white/[0.3] hover:bg-white/[0.12]"
                 >
                   Review capabilities
                 </a>
@@ -469,7 +469,7 @@ export function LandingPage() {
                 <Mic className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-lg font-bold tracking-[-0.03em] text-white">
+                <p className="text-[1.05rem] font-bold tracking-[-0.02em] text-white">
                   Voice
                 </p>
                 <p className="text-xs uppercase tracking-[0.22em] text-[#8ea1b8]">
@@ -477,7 +477,7 @@ export function LandingPage() {
                 </p>
               </div>
             </div>
-            <p>Answer more calls. Book more work. Escalate the urgent ones.</p>
+            <p>Answer the calls you miss. Save the jobs you would have lost.</p>
           </div>
         </footer>
       </div>

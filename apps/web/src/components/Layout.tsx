@@ -5,9 +5,9 @@ import { useTenant } from '../tenant.js';
 import { Icon } from './Icon.js';
 
 const NAV_ITEMS = [
-  { to: '/dashboard', icon: 'chart', label: 'Home' },
+  { to: '/dashboard', icon: 'chart', label: 'Inbox' },
   { to: '/calendar', icon: 'calendar', label: 'Calendar' },
-  { to: '/settings', icon: 'settings', label: 'Settings' },
+  { to: '/settings', icon: 'settings', label: 'Setup' },
 ] as const;
 
 export function Layout({ children }: PropsWithChildren) {
@@ -28,7 +28,10 @@ export function Layout({ children }: PropsWithChildren) {
           <span className="brand-icon">
             <Icon name="zap" size={16} />
           </span>
-          Voice
+          <span className="brand-copy">
+            <strong>Voice</strong>
+            <small>business calls</small>
+          </span>
         </Link>
 
         <nav className="topbar-nav" aria-label="Primary">
@@ -46,7 +49,7 @@ export function Layout({ children }: PropsWithChildren) {
 
         <div className="topbar-actions">
           <p className={`status-chip ${settings?.enabled ? 'on' : 'off'}`}>
-            {settings?.enabled ? 'AI active' : 'AI paused'}
+            {settings?.enabled ? 'Voice is answering calls' : 'Calls ring your phone'}
           </p>
           <button
             className="btn-logout"

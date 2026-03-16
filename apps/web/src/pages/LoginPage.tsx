@@ -80,15 +80,15 @@ export function LoginPage() {
     <section className="min-h-[100dvh] bg-[radial-gradient(circle_at_15%_0%,rgba(0,243,255,0.08),transparent_34%),radial-gradient(circle_at_85%_0%,rgba(157,0,255,0.06),transparent_32%),linear-gradient(180deg,#040407_0%,#0b0d12_100%)] px-6 py-10 text-white">
       <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
         <div className="max-w-xl">
-          <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#00f3ff]">
+          <div className="mb-6 inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
             <span className="h-2 w-2 rounded-full bg-[#00f3ff]" />
-            Voice workspace access
+            Voice business access
           </div>
 
-          <h1 className="bg-gradient-to-r from-white to-gray-400 bg-clip-text text-[clamp(2.8rem,6vw,4.8rem)] font-bold leading-[0.95] tracking-[-0.05em] text-transparent">
+          <h1 className="bg-gradient-to-r from-white to-gray-400 bg-clip-text text-[clamp(2.4rem,4vw,3rem)] font-bold tracking-[-0.03em] text-transparent">
             Sign in to Voice
           </h1>
-          <p className="mt-5 max-w-lg text-lg leading-8 text-[#d7deea]">{supportCopy}</p>
+          <p className="mt-2 max-w-lg text-sm leading-7 text-gray-400">{supportCopy}</p>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
             {[
@@ -103,10 +103,10 @@ export function LoginPage() {
                 <div className="mb-3 inline-flex rounded-2xl border border-[#00f3ff]/20 bg-[#00f3ff]/10 p-2 text-[#00f3ff]">
                   <Icon name={item.icon} size={16} />
                 </div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#f0f4f8]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                   {item.label}
                 </p>
-                <p className="mt-2 text-sm leading-6 text-[#b8c4d3]">{item.detail}</p>
+                <p className="mt-2 text-sm leading-6 text-gray-400">{item.detail}</p>
               </div>
             ))}
           </div>
@@ -115,11 +115,11 @@ export function LoginPage() {
         <div className="rounded-[32px] border border-white/10 bg-black/40 p-6 shadow-[0_30px_90px_rgba(0,0,0,0.36)] backdrop-blur-2xl md:p-8">
           <div className="mb-6 flex items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#00f3ff]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                 Access
               </p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-white">
-                Continue to your workspace
+              <h2 className="mt-3 text-xl font-bold text-white">
+                Continue to your dashboard
               </h2>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#00f3ff]/25 bg-[#00f3ff]/10 text-[#00f3ff]">
@@ -130,7 +130,7 @@ export function LoginPage() {
           {firebaseReady ? (
             <div className="space-y-5">
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-[#e8edf3]">Work email</span>
+                <span className="mb-2 block text-sm text-gray-400">Work email</span>
                 <input
                   type="email"
                   value={email}
@@ -140,14 +140,14 @@ export function LoginPage() {
                 />
               </label>
 
-              <button onClick={() => void handleSendMagicLink()} disabled={busy} className="w-full">
+              <button onClick={() => void handleSendMagicLink()} disabled={busy} className="w-full text-sm font-semibold">
                 <Icon name="zap" size={14} />
                 Email me a sign-in link
               </button>
 
               {fallbackReady ? (
                 <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
-                  <p className="text-sm font-medium leading-6 text-[#c6d0dd]">
+                  <p className="text-sm leading-6 text-gray-400">
                     Need temporary access? Use one of the demo roles below.
                   </p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -174,22 +174,22 @@ export function LoginPage() {
           ) : (
             <div className="space-y-5">
               <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4 text-[#dfe8f2]">
-                <p className="text-base font-medium">Email sign-in is not available here yet.</p>
-                <p className="mt-2 text-sm leading-6 text-[#c6d0dd]">
+                <p className="text-sm font-semibold text-white">Email sign-in is not available here yet.</p>
+                <p className="mt-2 text-sm leading-6 text-gray-400">
                   Use demo access below for now, or finish Firebase setup to enable email sign-in.
                 </p>
               </div>
 
               {fallbackReady ? (
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <button onClick={() => handleDemoLogin('operator')} disabled={busy}>
+                  <button onClick={() => handleDemoLogin('operator')} disabled={busy} className="text-sm font-semibold">
                     <Icon name="zap" size={14} />
                     Business owner demo
                   </button>
                   <button
                     onClick={() => handleDemoLogin('client_admin')}
                     disabled={busy}
-                    className="ghost"
+                    className="ghost text-sm font-semibold"
                   >
                     <Icon name="briefcase" size={14} />
                     Manager demo
@@ -197,7 +197,7 @@ export function LoginPage() {
                 </div>
               ) : (
                 <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
-                  <p className="text-sm leading-6 text-[#c6d0dd]">
+                  <p className="text-sm leading-6 text-gray-400">
                     Demo access is disabled in this environment.
                   </p>
                 </div>
@@ -208,7 +208,7 @@ export function LoginPage() {
           {message ? (
             <p
               role="status"
-              className="mt-5 rounded-[22px] border border-[#6ea8ff]/20 bg-[#6ea8ff]/10 px-4 py-3 text-sm leading-6 text-[#dfeaff]"
+              className="mt-5 rounded-[22px] border border-[#6ea8ff]/20 bg-[#6ea8ff]/10 px-4 py-3 text-sm leading-6 text-gray-200"
             >
               {message}
             </p>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryQueueManager, retryOptions } from '../src/queues.js';
+import { buildWorkerRuntimeSummary } from '../src/runtime.js';
 
 describe('queue behavior', () => {
   it('defines retry policy', () => {
@@ -35,5 +36,18 @@ describe('queue behavior', () => {
     });
 
     expect(queue.jobs[0]?.name).toBe('dead-letter');
+  });
+
+  it('flags non-durable production worker setups', () => {
+    const summary = buildWorkerRuntimeSummary({
+      nodeEnv: 'production',
+      queueMode: 'memory',
+      managedRuntime: true,
+      twilioConfigured: false,
+    });
+
+    expect(summary.queueDurable).toBe(false);
+    expect(summary.issues.map((issue) => issue.code)).toContain('inmemory-queue');
+    expect(summary.issues.map((issue) => issue.code)).toContain('twilio-not-configured');
   });
 });

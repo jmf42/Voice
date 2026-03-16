@@ -17,8 +17,8 @@ const STEPS = [
     icon: 'shield',
   },
   {
-    title: 'Assistant memory & test',
-    detail: 'Add business context and run a safe test.',
+    title: 'Business notes & test',
+    detail: 'Add caller guidance and run a safe test.',
     icon: 'zap',
   },
 ] as const;
@@ -74,10 +74,14 @@ export function OnboardingPage() {
     setDraft(settings);
   }, [settings]);
 
-  if (!settings || !draft) return <p>Loading onboarding workspace...</p>;
+  if (!settings || !draft) return <p>Loading business setup…</p>;
 
   const progressPercent = useMemo(() => ((step + 1) / STEPS.length) * 100, [step]);
   const currentStep = STEPS[step] ?? STEPS[0];
+  const showImportedDetails =
+    Boolean(draft.website_url?.trim()) ||
+    (draft.services?.length ?? 0) > 0 ||
+    (draft.faqs?.length ?? 0) > 0;
   const canContinue = useMemo(() => {
     if (!draft) return false;
     if (step === 0) return !isBlank(draft.business_name) && !isBlank(draft.business_phone);
@@ -105,11 +109,11 @@ export function OnboardingPage() {
   function applyStarterContext() {
     if (!draft) return;
     if (draft.business_context.trim().length > 0) {
-      setMessage('Context already has content. Edit it directly below.');
+      setMessage('Business notes already have content. Edit them directly below.');
       return;
     }
     setDraft({ ...draft, business_context: CONTEXT_STARTER });
-    setMessage('Starter context inserted. Replace the placeholders with your real details.');
+    setMessage('Starter notes inserted. Replace the placeholders with your real details.');
   }
 
   async function saveCurrentStep(): Promise<void> {
@@ -129,7 +133,7 @@ export function OnboardingPage() {
     }
     if (step === 1) {
       if (isBlank(draft.escalation_phone)) {
-        throw new Error('Add escalation phone to continue.');
+        throw new Error('Add the urgent handoff phone to continue.');
       }
       await saveSettings({ escalation_phone: sanitizePhone(draft.escalation_phone) });
       return;
@@ -142,7 +146,7 @@ export function OnboardingPage() {
   async function handleNext() {
     if (!canContinue) {
       setMessage(
-        step === 0 ? 'Please add business name and main phone.' : 'Please add escalation phone.',
+        step === 0 ? 'Please add business name and main phone.' : 'Please add the urgent handoff phone.',
       );
       return;
     }
@@ -190,14 +194,18 @@ export function OnboardingPage() {
 
   return (
     <section className="onboarding">
-      <div className="page-head">
-        <div>
-          <h1>Set up your business</h1>
-          <p className="subtitle">3 simple steps to teach the assistant how your business works.</p>
+      <div className="dashboard-head">
+        <div className="page-head">
+          <div>
+            <h1>Set up your business</h1>
+            <p className="subtitle">
+              3 simple steps to set up call handling for your business.
+            </p>
+          </div>
+          <p className="onboarding-progress-label">
+            Step {step + 1} of {STEPS.length}
+          </p>
         </div>
-        <p className="onboarding-progress-label">
-          Step {step + 1} of {STEPS.length}
-        </p>
       </div>
 
       <div className="onboarding-progress-track" aria-hidden>
@@ -298,18 +306,20 @@ export function OnboardingPage() {
                 />
               </label>
 
-              <p className="helper">
-                <Icon name="check" size={13} /> Imported knowledge:{' '}
-                <strong>{draft.services?.length ?? 0}</strong> services,{' '}
-                <strong>{draft.faqs?.length ?? 0}</strong> FAQs.
-              </p>
+              {showImportedDetails ? (
+                <p className="helper">
+                  <Icon name="check" size={13} /> Imported details:{' '}
+                  <strong>{draft.services?.length ?? 0}</strong> services,{' '}
+                  <strong>{draft.faqs?.length ?? 0}</strong> FAQs.
+                </p>
+              ) : null}
             </>
           ) : null}
 
           {step === 1 ? (
             <>
               <label>
-                <span>Urgent escalation phone</span>
+                <span>Urgent handoff phone</span>
                 <input
                   value={draft.escalation_phone}
                   onChange={(e) => setDraft({ ...draft, escalation_phone: e.target.value })}
@@ -335,7 +345,7 @@ export function OnboardingPage() {
               </div>
 
               <p className="helper">
-                <Icon name="alert" size={13} /> Do not use the Twilio number as escalation phone.
+                <Icon name="alert" size={13} /> Do not use the Twilio number as the handoff phone.
                 Use a real human/on-call number.
               </p>
             </>
@@ -351,11 +361,11 @@ export function OnboardingPage() {
                   disabled={busy}
                 >
                   <Icon name="briefcase" size={14} />
-                  Insert Starter Template
+                  Insert starter template
                 </button>
               </div>
               <label>
-                <span>AI Context & Memory</span>
+                <span>Business notes for call handling</span>
                 <textarea
                   value={draft.business_context}
                   onChange={(e) => setDraft({ ...draft, business_context: e.target.value })}
@@ -368,16 +378,16 @@ export function OnboardingPage() {
               <div className="settings-button-group">
                 <button type="button" onClick={() => void runTestCall()} disabled={busy}>
                   <Icon name="phone" size={14} />
-                  Create Sample Job (No Phone Call)
+                  Create test request (no phone call)
                 </button>
               </div>
               {testCallJobId ? (
                 <p className="helper">
-                  <Icon name="check" size={13} /> Sample job created: <code>{testCallJobId}</code>
+                  <Icon name="check" size={13} /> Test request created: <code>{testCallJobId}</code>
                 </p>
               ) : (
                 <p className="helper">
-                  This simulation checks dashboard flow and job creation only.
+                  This simulation checks dashboard flow and request creation only.
                 </p>
               )}
 
@@ -386,8 +396,8 @@ export function OnboardingPage() {
                   <strong>Real call test checklist</strong>
                   <p className="helper">1. Save this step</p>
                   <p className="helper">2. Call your Twilio number</p>
-                  <p className="helper">3. Ask a policy question from your memory text</p>
-                  <p className="helper">4. Confirm new job appears in dashboard</p>
+                  <p className="helper">3. Ask a policy question from your business notes</p>
+                  <p className="helper">4. Confirm the new request appears in the dashboard</p>
                 </div>
               </div>
             </>

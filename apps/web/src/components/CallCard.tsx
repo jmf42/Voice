@@ -51,25 +51,25 @@ export function CallCard({ call }: CallCardProps) {
         {call.hallucination_flag ? (
           <span className="ops-pill overdue">
             <Icon name="alert" size={11} />
-            Check AI answer
+            Check this answer
           </span>
         ) : null}
         {call.missed_booking_opportunity ? (
           <span className="ops-pill overdue">
             <Icon name="alert" size={11} />
-            Follow-up needed
+            Call back to book
           </span>
         ) : null}
         {call.escalation_successful === false ? (
           <span className="ops-pill overdue">
             <Icon name="alert" size={11} />
-            Urgent transfer failed
+            Urgent call did not reach you
           </span>
         ) : null}
       </div>
 
       <Link to={`/calls/${call.id}`} className="details-link">
-        Open details →
+        Open call →
       </Link>
     </article>
   );

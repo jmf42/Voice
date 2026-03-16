@@ -23,7 +23,7 @@ function RequireAuth({ children }: PropsWithChildren) {
 function RequireOnboardingComplete({ children }: PropsWithChildren) {
   const { settings, loading, error, onboardingComplete } = useTenant();
 
-  if (loading) return <p>Loading workspace...</p>;
+  if (loading) return <p>Loading dashboard...</p>;
   if (error) return <p role="alert">{error}</p>;
 
   if (needsOnboarding(settings, onboardingComplete)) {
@@ -36,7 +36,7 @@ function RequireOnboardingComplete({ children }: PropsWithChildren) {
 function SkipOnboardingWhenDone({ children }: PropsWithChildren) {
   const { settings, loading, error, onboardingComplete } = useTenant();
 
-  if (loading) return <p>Loading workspace...</p>;
+  if (loading) return <p>Loading dashboard...</p>;
   if (error) return <p role="alert">{error}</p>;
 
   if (!needsOnboarding(settings, onboardingComplete)) {

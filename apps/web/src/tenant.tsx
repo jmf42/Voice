@@ -67,7 +67,7 @@ export function TenantProvider({ children }: PropsWithChildren) {
         setOnboardingComplete(localStorage.getItem(LEGACY_ONBOARDING_DONE_KEY) === 'true');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load your workspace settings.');
+      setError(err instanceof Error ? err.message : 'Unable to load your business settings.');
     } finally {
       setLoading(false);
     }

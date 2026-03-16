@@ -15,6 +15,91 @@ interface ChecklistItem {
   tone: 'ok' | 'warning' | 'critical';
 }
 
+function buildAuthChecklistItem(readiness: ReadinessStatus | null): ChecklistItem {
+  if (readiness?.auth?.devBearerEnabled === false) {
+    return {
+      label: 'Production access is locked down',
+      detail: 'Only the intended sign-in path is active.',
+      tone: 'ok',
+    };
+  }
+
+  if (readiness?.auth?.devBearerEnabled === true) {
+    return {
+      label: 'Production access still needs hardening',
+      detail: 'A development login path is still enabled in production.',
+      tone: 'warning',
+    };
+  }
+
+  return {
+    label: 'Production access needs verification',
+    detail: 'The live readiness check did not return enough auth detail to confirm sign-in is locked down.',
+    tone: 'warning',
+  };
+}
+
+function buildPersistenceChecklistItem(readiness: ReadinessStatus | null): ChecklistItem {
+  if (readiness?.persistence?.durable === true) {
+    return {
+      label: 'Database saving is permanent',
+      detail: 'Calls and settings are being saved durably.',
+      tone: 'ok',
+    };
+  }
+
+  if (readiness?.persistence?.durable === false) {
+    return {
+      label: 'Saving is still temporary',
+      detail: 'Data can be lost until permanent database storage is active.',
+      tone: 'critical',
+    };
+  }
+
+  return {
+    label: 'Saving status needs verification',
+    detail: 'The live readiness check did not confirm whether calls and settings are stored durably.',
+    tone: 'warning',
+  };
+}
+
+function buildCalendarChecklistItem(
+  settings: ClientProfile | null | undefined,
+  readiness: ReadinessStatus | null,
+): ChecklistItem {
+  const calendarConnected = Boolean(settings?.calendar_enabled);
+
+  if (!calendarConnected) {
+    return {
+      label: 'Calendar booking still needs setup',
+      detail: 'Connect Google Calendar if you want booked jobs to sync automatically.',
+      tone: 'warning',
+    };
+  }
+
+  if (readiness?.providers?.calendar === true) {
+    return {
+      label: 'Calendar booking is available',
+      detail: 'Confirmed work can be synced automatically.',
+      tone: 'ok',
+    };
+  }
+
+  if (readiness?.providers?.calendar === false) {
+    return {
+      label: 'Calendar looks connected, but live sync is incomplete',
+      detail: 'The app says connected, but the server is missing live calendar setup.',
+      tone: 'critical',
+    };
+  }
+
+  return {
+    label: 'Calendar sync needs verification',
+    detail: 'The live readiness check did not confirm whether calendar sync is active.',
+    tone: 'warning',
+  };
+}
+
 function hasSavedBusinessAnswers(settings: ClientProfile | null | undefined): boolean {
   if (!settings) return false;
   return Boolean(
@@ -29,8 +114,6 @@ function buildChecklist(
   readiness: ReadinessStatus | null,
 ): ChecklistItem[] {
   const businessAnswersSaved = hasSavedBusinessAnswers(settings);
-  const calendarConnected = Boolean(settings?.calendar_enabled);
-  const calendarLive = Boolean(readiness?.providers?.calendar);
 
   return [
     settings?.enabled
@@ -55,45 +138,9 @@ function buildChecklist(
           detail: 'Add services, FAQs, or notes so callers get clear answers.',
           tone: 'warning',
         },
-    readiness?.persistence?.durable
-      ? {
-          label: 'Database saving is permanent',
-          detail: 'Calls and settings are being saved durably.',
-          tone: 'ok',
-        }
-      : {
-          label: 'Saving is still temporary',
-          detail: 'Data can be lost until permanent database storage is active.',
-          tone: 'critical',
-        },
-    calendarConnected && calendarLive
-      ? {
-          label: 'Calendar booking is available',
-          detail: 'Confirmed work can be synced automatically.',
-          tone: 'ok',
-        }
-      : calendarConnected && !calendarLive
-        ? {
-            label: 'Calendar looks connected, but live sync is incomplete',
-            detail: 'The app says connected, but the server is missing live calendar setup.',
-            tone: 'critical',
-          }
-        : {
-            label: 'Calendar booking still needs setup',
-            detail: 'Connect Google Calendar if you want booked jobs to sync automatically.',
-            tone: 'warning',
-          },
-    readiness && !readiness.auth?.devBearerEnabled
-      ? {
-          label: 'Production access is locked down',
-          detail: 'Only the intended sign-in path is active.',
-          tone: 'ok',
-        }
-      : {
-          label: 'Production access still needs hardening',
-          detail: 'A development login path is still enabled in production.',
-          tone: 'warning',
-        },
+    buildPersistenceChecklistItem(readiness),
+    buildCalendarChecklistItem(settings, readiness),
+    buildAuthChecklistItem(readiness),
   ];
 }
 
