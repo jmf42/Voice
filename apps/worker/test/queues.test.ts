@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { InMemoryQueueManager, retryOptions } from '../src/queues.js';
 import { buildWorkerRuntimeSummary } from '../src/runtime.js';
+import { retryCalendarWriteJob } from '../src/calendar-retry.js';
+import { buildRedisConnectionOptions } from '@dispatchos/config';
 
 describe('queue behavior', () => {
   it('defines retry policy', () => {
@@ -49,5 +51,48 @@ describe('queue behavior', () => {
     expect(summary.queueDurable).toBe(false);
     expect(summary.issues.map((issue) => issue.code)).toContain('inmemory-queue');
     expect(summary.issues.map((issue) => issue.code)).toContain('twilio-not-configured');
+  });
+
+  it('preserves managed redis connection details', () => {
+    const options = buildRedisConnectionOptions('rediss://user:secret@example.redis:6380/2');
+
+    expect(options).toMatchObject({
+      host: 'example.redis',
+      port: 6380,
+      username: 'user',
+      password: 'secret',
+      db: 2,
+    });
+    expect(options.tls).toEqual({});
+  });
+
+  it('posts calendar retry jobs back to the api recovery endpoint', async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init });
+      return {
+        ok: true,
+        text: async () => '',
+      } as Response;
+    });
+
+    await retryCalendarWriteJob({
+      apiBaseUrl: 'https://voice.example.com',
+      queueSecret: 'queue-secret',
+      payload: {
+        tenantId: 'demo-tenant',
+        jobId: 'job-1',
+        slotStart: '2026-03-08T20:00:00.000Z',
+      },
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0]?.url).toBe('https://voice.example.com/internal/queue/calendar-write');
+    expect(fetchCalls[0]?.init?.method).toBe('POST');
+    expect(fetchCalls[0]?.init?.headers).toMatchObject({
+      'content-type': 'application/json',
+      'x-queue-secret': 'queue-secret',
+    });
   });
 });

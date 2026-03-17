@@ -2,6 +2,7 @@ import { getToken, logout } from './auth.js';
 import type {
   Appointment,
   CallSummary,
+  CallTimelineItem,
   ClientProfile,
   Metrics,
   ReadinessStatus,
@@ -211,8 +212,8 @@ export function subscribeCalls(
   return () => controller.abort();
 }
 
-export async function getCall(callId: string): Promise<{ call: CallSummary; timeline: unknown[] }> {
-  const data = await request<{ job: JobApi; timeline?: unknown[] }>(`/v1/jobs/${callId}`);
+export async function getCall(callId: string): Promise<{ call: CallSummary; timeline: CallTimelineItem[] }> {
+  const data = await request<{ job: JobApi; timeline?: CallTimelineItem[] }>(`/v1/jobs/${callId}`);
   return {
     call: mapJobToCall(data.job),
     timeline: data.timeline ?? [],

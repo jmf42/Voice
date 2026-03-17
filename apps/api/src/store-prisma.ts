@@ -1,5 +1,6 @@
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { chooseJobStatus, ensureQualifiedJob, type CallOutcome } from '@dispatchos/shared';
+import { auditTypeForMessageStatus } from './message-audit.js';
 import type {
   AuditLog,
   CalendarConnection,
@@ -565,8 +566,14 @@ export class PrismaStore implements Store {
         status: data.status,
       },
     });
+    const messageStatus = created.status as MessageRecord['status'];
 
-    await this.addAudit(data.tenantId, 'SMS_SENT', { messageId: created.id, status: created.status }, { callId: data.callId });
+    await this.addAudit(
+      data.tenantId,
+      auditTypeForMessageStatus(messageStatus),
+      { messageId: created.id, status: messageStatus },
+      { callId: data.callId },
+    );
 
     return mapMessageRecord(created);
   }

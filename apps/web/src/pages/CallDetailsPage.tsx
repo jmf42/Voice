@@ -3,12 +3,95 @@ import { Link, useParams } from 'react-router-dom';
 import { getCall } from '../api.js';
 import { Icon } from '../components/Icon.js';
 import { useTenant } from '../tenant.js';
-import type { CallSummary } from '../types.js';
+import type { CallSummary, CallTimelineItem } from '../types.js';
 
-interface CallTimelineItem {
-  id?: string;
-  type?: string;
-  createdAt?: string;
+function hasFailedSms(item: CallTimelineItem): boolean {
+  return (
+    item.type === 'SMS_FAILED' ||
+    (item.type === 'SMS_SENT' && typeof item.payload?.status === 'string' && item.payload.status === 'failed')
+  );
+}
+
+function describeTimelineItem(item: CallTimelineItem): {
+  title: string;
+  detail?: string;
+  tone: 'default' | 'warning' | 'danger';
+} {
+  if (hasFailedSms(item)) {
+    return {
+      title: 'Text message failed',
+      detail: 'The confirmation text did not send. The team may need to follow up manually.',
+      tone: 'danger',
+    };
+  }
+
+  if (item.type === 'SMS_SENT') {
+    return {
+      title: 'Text message sent',
+      detail: 'A follow-up text was created for this caller.',
+      tone: 'default',
+    };
+  }
+
+  if (item.type === 'CALL_STARTED') {
+    return {
+      title: 'Call started',
+      detail: 'The voice session began and intake started.',
+      tone: 'default',
+    };
+  }
+
+  if (item.type === 'CALL_TERMINATED') {
+    return {
+      title: 'Call ended',
+      detail: 'The caller disconnected and the request was finalized.',
+      tone: 'default',
+    };
+  }
+
+  if (item.type === 'AUTO_BOOKING_SKIPPED') {
+    const reason = item.payload?.reason;
+    if (reason === 'calendar_not_connected_for_requested_slot') {
+      return {
+        title: 'Manual booking needed',
+        detail: 'The caller asked for a specific time, but no live calendar connection was available.',
+        tone: 'warning',
+      };
+    }
+    if (reason === 'requested_slot_unavailable') {
+      return {
+        title: 'Requested time unavailable',
+        detail: 'The exact requested time could not be booked automatically.',
+        tone: 'warning',
+      };
+    }
+    return {
+      title: 'Automatic booking skipped',
+      detail: 'A person may need to confirm the appointment details.',
+      tone: 'warning',
+    };
+  }
+
+  if (item.type === 'REQUESTED_SLOT_UNAVAILABLE') {
+    return {
+      title: 'Requested time unavailable',
+      detail: 'The requested slot could not be booked automatically.',
+      tone: 'warning',
+    };
+  }
+
+  if (item.type === 'REQUESTED_SLOT_BOOKED' || item.type === 'AUTO_BOOKED') {
+    return {
+      title: 'Appointment booked',
+      detail: 'The calendar booking completed automatically.',
+      tone: 'default',
+    };
+  }
+
+  return {
+    title: item.type ?? 'Event',
+    tone: 'default',
+  };
 }
 
 export function CallDetailsPage() {
@@ -28,7 +111,7 @@ export function CallDetailsPage() {
         setError(null);
         const data = await getCall(id);
         setCall(data.call);
-        setTimeline(data.timeline as CallTimelineItem[]);
+        setTimeline(data.timeline);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load call details.');
       } finally {
@@ -94,7 +177,8 @@ export function CallDetailsPage() {
   const cleanRun =
     !call.hallucination_flag &&
     !call.missed_booking_opportunity &&
-    call.escalation_successful !== false;
+    call.escalation_successful !== false &&
+    !timeline.some(hasFailedSms);
 
   return (
     <section className="max-w-7xl mx-auto px-6 py-12">
@@ -195,6 +279,12 @@ export function CallDetailsPage() {
                     <span className="danger-text">Urgent handoff failed</span>
                   </li>
                 ) : null}
+                {timeline.some(hasFailedSms) ? (
+                  <li>
+                    <Icon name="alert" size={13} />{' '}
+                    <span className="danger-text">Confirmation text failed</span>
+                  </li>
+                ) : null}
                 {cleanRun ? (
                   <div className="empty-state-inline">
                     <Icon name="shield" size={20} />
@@ -212,17 +302,31 @@ export function CallDetailsPage() {
             </p>
             {timeline.length ? (
               <ul className="mt-5 timeline-list">
-                {timeline.map((item, index) => (
-                  <li key={item.id ?? index} className="timeline-item">
-                    <span className="timeline-dot" />
-                    <div>
-                      <strong>{item.type ?? 'Event'}</strong>
-                      {item.createdAt ? (
-                        <small>{new Date(item.createdAt).toLocaleString()}</small>
-                      ) : null}
-                    </div>
-                  </li>
-                ))}
+                {timeline.map((item, index) => {
+                  const event = describeTimelineItem(item);
+                  return (
+                    <li key={item.id ?? index} className="timeline-item">
+                      <span className="timeline-dot" />
+                      <div>
+                        <strong
+                          className={
+                            event.tone === 'danger'
+                              ? 'danger-text'
+                              : event.tone === 'warning'
+                                ? 'warning-text'
+                                : undefined
+                          }
+                        >
+                          {event.title}
+                        </strong>
+                        {item.createdAt ? (
+                          <small>{new Date(item.createdAt).toLocaleString()}</small>
+                        ) : null}
+                        {event.detail ? <p className="mt-1 text-sm text-gray-400">{event.detail}</p> : null}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <div className="mt-5 empty-state-inline">

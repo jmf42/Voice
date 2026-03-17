@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseEnv } from '../src/index.js';
+import { buildRedisConnectionOptions, parseEnv } from '../src/index.js';
 
 describe('env parsing', () => {
   it('parses valid env', () => {
@@ -20,5 +20,18 @@ describe('env parsing', () => {
 
   it('fails when required values are missing', () => {
     expect(() => parseEnv({})).toThrow();
+  });
+
+  it('preserves redis credentials, db, and tls settings', () => {
+    const options = buildRedisConnectionOptions('rediss://user:secret@example.redis:6380/2');
+
+    expect(options).toMatchObject({
+      host: 'example.redis',
+      port: 6380,
+      username: 'user',
+      password: 'secret',
+      db: 2,
+    });
+    expect(options.tls).toEqual({});
   });
 });

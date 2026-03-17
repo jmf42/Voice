@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export { buildRedisConnectionOptions, type RedisConnectionOptions } from './redis.js';
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -19,6 +20,7 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
   CORS_ORIGINS: z.string().default('http://localhost:3000,http://localhost:5173'),
+  QUEUE_SHARED_SECRET: z.string().min(1).optional(),
   ALLOW_DEV_AUTH_TOKEN: z
     .string()
     .optional()

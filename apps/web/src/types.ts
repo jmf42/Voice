@@ -1,4 +1,6 @@
-export type UserRole = 'operator' | 'client_admin';
+import type { Role, TenantSettings, TimeWindow } from '@dispatchos/shared';
+
+export type UserRole = Role;
 
 export interface Workspace {
   id: string;
@@ -6,25 +8,11 @@ export interface Workspace {
   createdAt: string;
 }
 
-export interface ClientProfile {
+export interface ClientProfile extends TenantSettings {
   id: string; // Tenant ID
   workspaceId: string;
   persistence_mode?: 'memory' | 'database';
   persistence_durable?: boolean;
-  enabled: boolean;
-  business_name: string;
-  business_phone: string;
-  escalation_phone: string;
-  vertical: 'salon' | 'clinic' | 'restaurant' | 'field_service' | 'other';
-  calendar_enabled: boolean;
-  languages: Array<'fr' | 'en' | 'de' | 'it'>;
-  business_context: string;
-  // New fields for SME
-  website_url?: string;
-  opening_hours?: Record<string, string>; // e.g., 'monday': '09:00-18:00'
-  recording_consent_enabled: boolean;
-  faqs?: Array<{ question: string; answer: string }>;
-  services?: Array<{ name: string; description?: string; price?: string; duration_minutes?: number }>;
 }
 
 export interface CallSummary {
@@ -32,7 +20,7 @@ export interface CallSummary {
   clientId: string;
   caller_phone: string;
   call_intent: 'booking' | 'faq' | 'message' | 'urgent_escalation' | 'unknown';
-  language_detected: 'fr' | 'en' | 'de' | 'it';
+  language_detected: 'fr' | 'en';
   duration_seconds: number;
   transcript: string;
   summary: string;
@@ -45,6 +33,13 @@ export interface CallSummary {
   createdAt: string;
 }
 
+export interface CallTimelineItem {
+  id?: string;
+  type?: string;
+  createdAt?: string;
+  payload?: Record<string, unknown>;
+}
+
 export interface Appointment {
   id: string;
   clientId: string;
@@ -53,7 +48,7 @@ export interface Appointment {
   caller_phone: string;
   status: 'requested' | 'confirmed' | 'cancelled' | 'needs_manual_booking';
   service_requested?: string;
-  preferred_time_window?: string;
+  preferred_time_window?: TimeWindow;
   confirmed_slot_start?: string;
   confirmed_slot_end?: string;
   external_event_id?: string;

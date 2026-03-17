@@ -114,9 +114,28 @@ const METRICS = [
   },
 ];
 
+const OPERATOR_VIEW = [
+  {
+    title: 'One inbox instead of missed voicemails',
+    description:
+      'Each answered call lands as a clear request with the caller, summary, urgency, and next step.',
+  },
+  {
+    title: 'Urgent work is obvious at a glance',
+    description:
+      'Escalations and booking risks are flagged so the team knows what to review first.',
+  },
+  {
+    title: 'Bookings move without a second system',
+    description:
+      'Confirmed jobs can move into the calendar instead of living in notes, texts, or memory.',
+  },
+];
+
 const NAV_ITEMS = [
   { label: 'Capabilities', href: '#capabilities' },
-  { label: 'System', href: '#system' },
+  { label: 'How it works', href: '#system' },
+  { label: 'Operator view', href: '#operator-view' },
   { label: 'Metrics', href: '#metrics' },
 ];
 
@@ -210,7 +229,30 @@ export function LandingPage() {
               <motion.div
                 initial={reduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
-                transition={reduceMotion ? undefined : { duration: 0.55, delay: 0.24 }}
+                transition={reduceMotion ? undefined : { duration: 0.55, delay: 0.2 }}
+                className="mb-8 grid gap-3 sm:grid-cols-3"
+              >
+                {[
+                  'Answer missed and after-hours calls automatically',
+                  'Capture the job details before the caller gives up',
+                  'Route urgent calls to a real person when needed',
+                ].map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-[22px] border border-white/10 bg-white/[0.05] px-4 py-4 text-sm leading-6 text-[#d6dde8]"
+                  >
+                    <span className="mb-3 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#00f3ff]/30 bg-[#00f3ff]/10 text-[#00f3ff]">
+                      <CheckCircle2 className="h-4 w-4" />
+                    </span>
+                    <p>{item}</p>
+                  </div>
+                ))}
+              </motion.div>
+
+              <motion.div
+                initial={reduceMotion ? false : { opacity: 0, y: 20 }}
+                animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+                transition={reduceMotion ? undefined : { duration: 0.55, delay: 0.28 }}
                 className="mb-8 flex flex-col gap-4 sm:flex-row"
               >
                 <Link
@@ -230,7 +272,7 @@ export function LandingPage() {
               <motion.div
                 initial={reduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
-                transition={reduceMotion ? undefined : { duration: 0.55, delay: 0.32 }}
+                transition={reduceMotion ? undefined : { duration: 0.55, delay: 0.36 }}
                 className="flex flex-wrap gap-3 text-sm text-gray-400"
               >
                 {['Plumbers', 'Salons', 'Clinics', 'Restaurants', 'Field service teams'].map(
@@ -390,6 +432,57 @@ export function LandingPage() {
                   </div>
                 </Section>
               ))}
+            </div>
+          </div>
+        </Section>
+
+        <Section
+          id="operator-view"
+          className="relative mx-auto max-w-7xl px-6 py-16 scroll-mt-28"
+        >
+          <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
+            <div className="max-w-2xl">
+              <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                Operator view
+              </p>
+              <h2 className="mb-4 text-3xl font-bold text-white">
+                Built to feel like a clear front desk, not another AI dashboard
+              </h2>
+              <p className="text-sm leading-7 text-gray-400">
+                The product should reduce chaos for the person running the day. New calls land in
+                one inbox, urgent issues stand out, and bookings move forward without digging
+                through voicemails or text threads.
+              </p>
+            </div>
+
+            <div className="rounded-[32px] border border-white/10 bg-black/40 p-6 shadow-[0_28px_70px_rgba(0,0,0,0.26)] backdrop-blur-2xl">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                    Daily workflow
+                  </p>
+                  <h3 className="mt-2 text-2xl font-bold text-white">What the team sees</h3>
+                </div>
+                <div className="rounded-full border border-[#00f3ff]/30 bg-[#00f3ff]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#8ff7ff]">
+                  Simple by design
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {OPERATOR_VIEW.map((item, index) => (
+                  <Section key={item.title} delay={index * 0.08}>
+                    <div className="grid gap-4 rounded-[26px] border border-white/10 bg-white/[0.04] p-5 sm:grid-cols-[auto_1fr] sm:items-start">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#00f3ff]/24 bg-[#00f3ff]/10 text-sm font-bold text-[#00f3ff]">
+                        0{index + 1}
+                      </div>
+                      <div>
+                        <h3 className="mb-2 text-lg font-bold text-white">{item.title}</h3>
+                        <p className="text-sm leading-7 text-gray-400">{item.description}</p>
+                      </div>
+                    </div>
+                  </Section>
+                ))}
+              </div>
             </div>
           </div>
         </Section>

@@ -107,6 +107,9 @@ The current Google Cloud SQL instance attached to production is `dispatchos-pg` 
 - `BOOTSTRAP_DEMO_TENANT=false`
 - `DATABASE_URL`
 - `REDIS_URL`
+- `QUEUE_SHARED_SECRET`
+
+`QUEUE_SHARED_SECRET` must be set to the same value in both the API and worker services so queued calendar retry jobs can be replayed safely through the internal recovery endpoint.
 
 ### Current auth-related production gap to watch
 
@@ -121,10 +124,13 @@ Run from repo root:
 ```bash
 pnpm --filter @dispatchos/api test
 pnpm --filter @dispatchos/web test
+pnpm --filter @dispatchos/worker test
 pnpm --filter @dispatchos/api typecheck
 pnpm --filter @dispatchos/web typecheck
+pnpm --filter @dispatchos/worker typecheck
 pnpm --filter @dispatchos/api lint
 pnpm --filter @dispatchos/web lint
+pnpm --filter @dispatchos/worker lint
 pnpm build
 ```
 

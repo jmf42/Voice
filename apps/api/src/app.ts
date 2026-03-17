@@ -51,6 +51,12 @@ const gatherBodySchema = z.object({
   SpeechResult: z.string().optional().default(''),
   CallSid: z.string().optional().default(''),
 });
+const calendarWriteRetrySchema = z.object({
+  tenantId: z.string().min(1),
+  jobId: z.string().min(1),
+  slotStart: z.string().min(1).optional(),
+  slotEnd: z.string().min(1).optional(),
+});
 
 const settingsPhoneSchema = z
   .string()
@@ -358,12 +364,16 @@ function buildRealtimeAgentTurnInstruction(args: {
   return [
     `Handle the caller's latest turn in ${args.language === 'fr' ? 'French' : 'English'}.`,
     'Use the available tools before answering when you need saved business facts, the current intake state, or schedule availability.',
+    'For service intake, call get_intake_state before asking another question unless the caller turn is only small talk or a pure business-information question.',
     'Ask only one short follow-up question when a detail is still missing.',
+    'Do not ask for city, postal code, or address repetition when the current intake state already has a confirmed street-and-number address.',
+    'If the caller gives a short numeric time like 1208 or 1 2 0 8 after you asked for time, treat it as a time. If you are not sure whether digits are a time or something else, ask one targeted clarification question.',
     needsSlotCheck
       ? 'Before you say a requested specific time works, call check_requested_slot.'
       : 'If the intake is incomplete, use get_intake_state and ask only for the next missing detail.',
     'If check_requested_slot says the time is unavailable, ask for another time.',
     'If check_requested_slot says calendar_disabled, calendar_not_connected, or availability_unknown, do not present the time as booked. Say the team will confirm by text.',
+    'Do not say you booked, scheduled, or requested something in the background unless a tool result supports that statement.',
     'If the caller only wants business information, answer it directly and do not force service intake.',
     'If the intake is complete and the requested time is unavailable, ask for another time.',
     args.businessHasCalendar
@@ -734,6 +744,7 @@ export function createApp(deps?: {
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
     CORS_ORIGINS: process.env.CORS_ORIGINS,
+    QUEUE_SHARED_SECRET: process.env.QUEUE_SHARED_SECRET,
     ALLOW_DEV_AUTH_TOKEN: process.env.ALLOW_DEV_AUTH_TOKEN,
     ALLOW_INMEMORY_STORE: process.env.ALLOW_INMEMORY_STORE,
     BOOTSTRAP_DEMO_TENANT: process.env.BOOTSTRAP_DEMO_TENANT,
@@ -953,6 +964,118 @@ export function createApp(deps?: {
     }
   }
 
+  function hasValidQueueSecret(headerValue: string | string[] | undefined): boolean {
+    if (!env.QUEUE_SHARED_SECRET) return false;
+    if (Array.isArray(headerValue)) return headerValue.includes(env.QUEUE_SHARED_SECRET);
+    return headerValue === env.QUEUE_SHARED_SECRET;
+  }
+
+  async function recoverCalendarWriteRetry(payload: z.infer<typeof calendarWriteRetrySchema>): Promise<JobRecord | null> {
+    const job = await store.getJob(payload.tenantId, payload.jobId);
+    if (!job) return null;
+
+    const calendarConnection =
+      (calendarService.isLiveProviderEnabled() || process.env.NODE_ENV === 'test')
+      ? await store.getCalendarConnection(payload.tenantId)
+      : undefined;
+
+    if (!calendarConnection) {
+      const updated = await store.updateJob(payload.tenantId, payload.jobId, {
+        booking_status: 'manual_required',
+      });
+      await store.addAudit(
+        payload.tenantId,
+        'CALENDAR_WRITE_RECOVERY_SKIPPED',
+        { reason: 'calendar_not_connected' },
+        { callId: updated.callId, jobId: updated.id },
+      );
+      await broadcastJobSnapshot(payload.tenantId);
+      return updated;
+    }
+
+    const slot =
+      payload.slotStart
+        ? {
+            slotStart: payload.slotStart,
+            slotEnd:
+              payload.slotEnd ??
+              new Date(new Date(payload.slotStart).getTime() + 60 * 60 * 1000).toISOString(),
+          }
+        : (
+            await calendarService.findNextAvailableSlots({
+              connection: calendarConnection,
+              preferredTimeWindow: job.preferred_time_window,
+              count: 1,
+            })
+          )[0];
+
+    if (!slot) {
+      const updated = await store.updateJob(payload.tenantId, payload.jobId, {
+        booking_status: 'manual_required',
+      });
+      await store.addAudit(
+        payload.tenantId,
+        'CALENDAR_WRITE_RECOVERY_SKIPPED',
+        { reason: 'no_available_slots' },
+        { callId: updated.callId, jobId: updated.id },
+      );
+      await broadcastJobSnapshot(payload.tenantId);
+      return updated;
+    }
+
+    if (payload.slotStart) {
+      const available = await calendarService.isSlotAvailable({
+        connection: calendarConnection,
+        slotStart: slot.slotStart,
+        slotEnd: slot.slotEnd,
+      });
+      if (!available) {
+        const updated = await store.updateJob(payload.tenantId, payload.jobId, {
+          booking_status: 'manual_required',
+        });
+        await store.addAudit(
+          payload.tenantId,
+          'CALENDAR_WRITE_RECOVERY_SKIPPED',
+          {
+            reason: 'requested_slot_unavailable',
+            slotStart: slot.slotStart,
+            slotEnd: slot.slotEnd,
+          },
+          { callId: updated.callId, jobId: updated.id },
+        );
+        await broadcastJobSnapshot(payload.tenantId);
+        return updated;
+      }
+    }
+
+    const booking = await calendarService.createOrUpdateBooking({
+      job,
+      tenantId: payload.tenantId,
+      connection: calendarConnection,
+      slotStart: slot.slotStart,
+      slotEnd: slot.slotEnd,
+    });
+    const updated = await store.updateJob(payload.tenantId, payload.jobId, {
+      status: 'confirmed',
+      booking_status: 'booked',
+      confirmed_slot_start: slot.slotStart,
+      confirmed_slot_end: slot.slotEnd,
+      external_event_id: booking.externalEventId,
+    });
+    await store.addAudit(
+      payload.tenantId,
+      'CALENDAR_WRITE_RECOVERED',
+      {
+        slotStart: slot.slotStart,
+        slotEnd: slot.slotEnd,
+        externalEventId: booking.externalEventId,
+      },
+      { callId: updated.callId, jobId: updated.id },
+    );
+    await broadcastJobSnapshot(payload.tenantId);
+    return updated;
+  }
+
   async function broadcastJobSnapshot(tenantId: string): Promise<void> {
     const clients = jobStreamClientsByTenant.get(tenantId);
     if (!clients || clients.size === 0) return;
@@ -1025,6 +1148,7 @@ export function createApp(deps?: {
     callSid: string,
     userText: string,
     referenceDate = new Date(),
+    lastAssistantText?: string,
   ): Promise<RealtimeIntakeState> {
     const state = realtimeStateByCallSid.get(callSid) ?? {
       addressConfirmed: false,
@@ -1043,7 +1167,16 @@ export function createApp(deps?: {
       state.addressConfirmed = true;
     }
 
-    const requestedSchedule = extractRequestedSchedule(normalized, { now: referenceDate });
+    const assistantAskedForTime = Boolean(
+      lastAssistantText &&
+        /\b(what time works best|what time works|which time works|preferred time|do you mean.*(?:am|pm|\d[:h]\d{2}|\d{3,4}))\b/i.test(
+          lastAssistantText,
+        ),
+    );
+    const requestedSchedule = extractRequestedSchedule(normalized, {
+      now: referenceDate,
+      assumeTodayOnBareTime: assistantAskedForTime,
+    });
     if (requestedSchedule) {
       state.requestedSchedule = requestedSchedule;
       state.requestedScheduleAvailability = undefined;
@@ -1279,7 +1412,17 @@ export function createApp(deps?: {
           (calendarService.isLiveProviderEnabled() || process.env.NODE_ENV === 'test')
           ? await store.getCalendarConnection(finalized.call.tenantId)
           : undefined;
-        if (calendarConnection) {
+        if (!calendarConnection && args.requestedSchedule) {
+          finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
+            booking_status: 'manual_required',
+          });
+          await store.addAudit(
+            finalized.call.tenantId,
+            'AUTO_BOOKING_SKIPPED',
+            { reason: 'calendar_not_connected_for_requested_slot' },
+            { callId: finalized.call.id, jobId: finalJob.id },
+          );
+        } else if (calendarConnection) {
           try {
             if (args.skipAutoBooking) {
               finalJob = await store.updateJob(finalized.call.tenantId, finalJob.id, {
@@ -1820,7 +1963,12 @@ export function createApp(deps?: {
 
               const previousState = cloneRealtimeState(realtimeStateByCallSid.get(callSid));
               const transcript = addRealtimeTurn(callSid, { role: 'user', text: userText });
-              const intakeState = await captureRealtimeUserTurn(callSid, userText, call.createdAt);
+              const intakeState = await captureRealtimeUserTurn(
+                callSid,
+                userText,
+                call.createdAt,
+                lastAssistantText,
+              );
               const callerNeedsService = hasActiveRealtimeServiceNeed(intakeState);
               const smallTalk = isSmallTalkText(userText);
               const informationalQuestion = looksLikeInformationalQuestion(userText);
@@ -2520,6 +2668,23 @@ export function createApp(deps?: {
 
     const audits = await store.getAudits(job.callId);
     return { job, timeline: audits };
+  });
+
+  app.post('/internal/queue/calendar-write', async (request, reply) => {
+    if (!env.QUEUE_SHARED_SECRET) {
+      return reply.status(503).send({ error: 'Queue recovery is not configured.' });
+    }
+    if (!hasValidQueueSecret(request.headers['x-queue-secret'])) {
+      return reply.status(401).send({ error: 'Unauthorized queue request.' });
+    }
+
+    const payload = calendarWriteRetrySchema.parse(request.body ?? {});
+    const job = await recoverCalendarWriteRetry(payload);
+    if (!job) {
+      return reply.status(404).send({ error: 'Job not found' });
+    }
+
+    return { ok: true, job };
   });
 
   app.post('/v1/jobs/:jobId/confirm-time', { preHandler: requireAuth }, async (request, reply) => {

@@ -1,4 +1,5 @@
 import { Queue, Worker, type JobsOptions } from 'bullmq';
+import { buildRedisConnectionOptions, type RedisConnectionOptions } from '@dispatchos/config';
 
 export type QueueName = 'sms-retry' | 'calendar-write' | 'transcript-persist' | 'dead-letter';
 
@@ -6,14 +7,6 @@ export interface QueueJobPayload {
   tenantId: string;
   idempotencyKey: string;
   payload: Record<string, unknown>;
-}
-
-function parseRedisConnection(redisUrl: string): { host: string; port: number } {
-  const parsed = new URL(redisUrl);
-  return {
-    host: parsed.hostname,
-    port: Number(parsed.port || 6379),
-  };
 }
 
 export function retryOptions(): JobsOptions {
@@ -29,11 +22,11 @@ export function retryOptions(): JobsOptions {
 }
 
 export class QueueManager {
-  private connection: { host: string; port: number };
+  private connection: RedisConnectionOptions;
   private queues: Record<QueueName, Queue<QueueJobPayload>>;
 
   constructor(redisUrl: string) {
-    this.connection = parseRedisConnection(redisUrl);
+    this.connection = buildRedisConnectionOptions(redisUrl);
     this.queues = {
       'sms-retry': new Queue<QueueJobPayload>('sms-retry', { connection: this.connection }),
       'calendar-write': new Queue<QueueJobPayload>('calendar-write', { connection: this.connection }),

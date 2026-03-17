@@ -29,6 +29,19 @@ describe('realtime intake helpers', () => {
     });
   });
 
+  it('extracts a requested slot from spaced spoken digits for today', () => {
+    const requested = extractRequestedSchedule('1 2 0 8 today', {
+      now: new Date('2026-03-17T08:30:00+01:00'),
+      durationMinutes: 60,
+    });
+
+    expect(requested).toEqual({
+      slotStart: '2026-03-17T11:08:00.000Z',
+      slotEnd: '2026-03-17T12:08:00.000Z',
+      label: 'today at 12:08 PM',
+    });
+  });
+
   it('does not treat small talk as the service issue', () => {
     expect(isSmallTalkText('Good morning. How are you?')).toBe(true);
     expect(shouldCaptureIssueText('Good morning. How are you?')).toBe(false);

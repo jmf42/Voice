@@ -45,11 +45,25 @@ function extractClock(text: string): { hours: number; minutes: number } | null {
   }
 
   const twentyFourHour = text.match(/\b([01]?\d|2[0-3])[:h]([0-5]\d)\b/);
-  if (!twentyFourHour) return null;
+  if (twentyFourHour) {
+    return {
+      hours: Number(twentyFourHour[1]),
+      minutes: Number(twentyFourHour[2]),
+    };
+  }
+
+  const spokenDigits = text.match(/\b(\d)\s+(\d)\s+(\d)\s+(\d)\b/);
+  if (!spokenDigits) return null;
+
+  const hours = Number(`${spokenDigits[1]}${spokenDigits[2]}`);
+  const minutes = Number(`${spokenDigits[3]}${spokenDigits[4]}`);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours > 23 || minutes > 59) {
+    return null;
+  }
 
   return {
-    hours: Number(twentyFourHour[1]),
-    minutes: Number(twentyFourHour[2]),
+    hours,
+    minutes,
   };
 }
 
@@ -171,7 +185,7 @@ export function inferTimeWindowFromText(text: string): TimeWindow | undefined {
 
 export function extractRequestedSchedule(
   text: string,
-  args: { now?: Date; durationMinutes?: number } = {},
+  args: { now?: Date; durationMinutes?: number; assumeTodayOnBareTime?: boolean } = {},
 ): RequestedSchedule | null {
   const now = args.now ?? new Date();
   const durationMinutes = args.durationMinutes ?? 60;
@@ -187,6 +201,9 @@ export function extractRequestedSchedule(
     date = new Date(now);
   } else {
     date = exactDateFromMonthDay(text, now);
+    if (!date && args.assumeTodayOnBareTime) {
+      date = new Date(now);
+    }
   }
   if (!date) return null;
 

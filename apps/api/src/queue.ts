@@ -1,4 +1,5 @@
 import { Queue, type JobsOptions } from 'bullmq';
+import { buildRedisConnectionOptions } from '@dispatchos/config';
 
 export type QueueName = 'sms-retry' | 'calendar-write' | 'transcript-persist' | 'dead-letter';
 
@@ -13,14 +14,6 @@ export interface QueueClient {
   close?(): Promise<void>;
 }
 
-function parseRedisConnection(redisUrl: string): { host: string; port: number } {
-  const parsed = new URL(redisUrl);
-  return {
-    host: parsed.hostname,
-    port: Number(parsed.port || 6379),
-  };
-}
-
 export function queueRetryPolicy(): JobsOptions {
   return {
     attempts: 4,
@@ -33,11 +26,15 @@ export function queueRetryPolicy(): JobsOptions {
   };
 }
 
+function buildQueueJobId(name: QueueName, idempotencyKey: string): string {
+  return `${name}__${idempotencyKey.replaceAll(':', '_')}`;
+}
+
 export class BullQueueClient implements QueueClient {
   private readonly queues: Record<QueueName, Queue<QueuePayload>>;
 
   constructor(redisUrl: string) {
-    const connection = parseRedisConnection(redisUrl);
+    const connection = buildRedisConnectionOptions(redisUrl);
     this.queues = {
       'sms-retry': new Queue<QueuePayload>('sms-retry', { connection }),
       'calendar-write': new Queue<QueuePayload>('calendar-write', { connection }),
@@ -49,7 +46,7 @@ export class BullQueueClient implements QueueClient {
   async enqueue(name: QueueName, payload: QueuePayload): Promise<void> {
     await this.queues[name].add(payload.idempotencyKey, payload, {
       ...queueRetryPolicy(),
-      jobId: `${name}:${payload.idempotencyKey}`,
+      jobId: buildQueueJobId(name, payload.idempotencyKey),
     });
   }
 

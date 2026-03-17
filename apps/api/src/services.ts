@@ -12,7 +12,11 @@ import OpenAI from 'openai';
 import twilio from 'twilio';
 import WebSocket from 'ws';
 import type { CalendarConnection, CallRecord, JobRecord, TenantSettingsRecord } from './types.js';
-import { inferTimeWindowFromText, shouldCaptureIssueText } from './realtime-intake.js';
+import {
+  inferTimeWindowFromText,
+  isLikelyUnclearRealtimeTranscript,
+  shouldCaptureIssueText,
+} from './realtime-intake.js';
 
 function compactText(value?: string): string {
   return value?.trim().replace(/\s+/g, ' ') ?? '';
@@ -264,17 +268,30 @@ function inferServiceHint(
 
 function extractJobSummarySource(call: CallRecord): string {
   const prioritized: string[] = [];
-  const callerTranscriptIssues = call.transcript
-    .filter((line) => !/^\[realtime:assistant\]/i.test(line))
-    .map((line) => line.replace(/^\[[^\]]+\]\s*/, '').trim())
-    .filter(Boolean)
-    .filter((line) => shouldCaptureIssueText(line));
+  const seen = new Set<string>();
+  const addPrioritized = (line?: string): void => {
+    const compacted = compactText(line);
+    const normalized = normalizeSearchText(compacted);
+    if (!normalized || seen.has(normalized)) return;
+    const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
+    if (tokenCount <= 3 && !/\d/.test(normalized) && !/[?.!]/.test(compacted)) return;
+    seen.add(normalized);
+    prioritized.push(compacted);
+  };
 
   if (compactText(call.issueText)) {
-    prioritized.push(compactText(call.issueText));
+    addPrioritized(call.issueText);
   }
 
-  prioritized.push(...callerTranscriptIssues);
+  for (const line of call.transcript
+    .filter((entry) => !/^\[realtime:assistant\]/i.test(entry))
+    .map((entry) => entry.replace(/^\[[^\]]+\]\s*/, '').trim())
+    .filter(Boolean)
+    .filter((entry) => shouldCaptureIssueText(entry))
+    .filter((entry) => !isLikelyUnclearRealtimeTranscript(entry))) {
+    addPrioritized(line);
+  }
+
   const merged = prioritized.filter(Boolean).join(' ').trim();
   if (merged) return merged;
 
@@ -353,7 +370,10 @@ function buildRealtimeSessionInstructions(args: {
     '- Use at most one short sentence plus one short follow-up question.',
     '- Do not greet again because Twilio already greeted the caller.',
     '- Do not repeat details the caller already confirmed unless you are correcting a conflict.',
+    '- Check the current intake state before asking for another service detail.',
+    '- If the address already includes a street and number, do not ask for postal code or city unless the address is still explicitly unconfirmed.',
     '- Do not claim a booking is confirmed unless the system says the requested time is available.',
+    '- Do not promise you booked, scheduled, requested, or submitted something in the background unless a tool result confirms that action.',
     '',
     '# Safety and urgency',
     '- Do not treat missing details as an emergency by themselves.',
@@ -362,6 +382,7 @@ function buildRealtimeSessionInstructions(args: {
     '',
     '# Repair and clarification',
     '- If the transcript sounds incomplete, noisy, or unclear, ask the caller to repeat the last detail more clearly.',
+    '- If the caller says a compact spoken time like "1 2 0 8" right after a time question, interpret it as a time or ask one targeted clarification question.',
     '- If business context is missing, say you will pass the question to the team instead of inventing an answer.',
     '',
     '# Style',
@@ -405,12 +426,14 @@ function buildRealtimeToolDefinitions(
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  strict: true;
 }> {
   return Object.entries(tools ?? {}).map(([name, tool]) => ({
     type: 'function',
     name,
     description: tool.description,
     parameters: tool.parameters,
+    strict: true,
   }));
 }
 

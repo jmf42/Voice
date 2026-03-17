@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { chooseJobStatus, ensureQualifiedJob, type CallOutcome } from '@dispatchos/shared';
+import { auditTypeForMessageStatus } from './message-audit.js';
 import type {
   AuditLog,
   CalendarConnection,
@@ -289,7 +290,12 @@ export class InMemoryStore implements Store {
       updatedAt: now(),
     };
     this.messages.set(message.id, message);
-    await this.addAudit(data.tenantId, 'SMS_SENT', { messageId: message.id, status: message.status }, { callId: data.callId });
+    await this.addAudit(
+      data.tenantId,
+      auditTypeForMessageStatus(message.status),
+      { messageId: message.id, status: message.status },
+      { callId: data.callId },
+    );
     return message;
   }
 

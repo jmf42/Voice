@@ -8,19 +8,25 @@ import type { ClientProfile as Settings } from '../types.js';
 const STEPS = [
   {
     title: 'Business basics',
-    detail: 'Set company identity and main contact phone.',
+    detail: 'Add the business name, main phone, and optional website.',
     icon: 'briefcase',
   },
   {
-    title: 'Call routing',
-    detail: 'Set urgent handoff number and Twilio routing checks.',
+    title: 'Urgent handoff',
+    detail: 'Choose the real number that should receive urgent calls.',
     icon: 'shield',
   },
   {
-    title: 'Business notes & test',
-    detail: 'Add caller guidance and run a safe test.',
+    title: 'Caller guidance',
+    detail: 'Add business notes, then run a safe test request.',
     icon: 'zap',
   },
+] as const;
+
+const STEP_OUTCOMES = [
+  'Callers hear the right business name and contact number.',
+  'Urgent calls have a real person to hand off to.',
+  'The assistant has enough context to answer and create useful requests.',
 ] as const;
 
 const CONTEXT_STARTER = `Business overview
@@ -57,6 +63,10 @@ function isBlank(value: string | undefined): boolean {
   return !value || value.trim().length === 0;
 }
 
+function resolveTenantWebhookId(draftId?: string, settingsId?: string): string {
+  return draftId || settingsId || 'demo-tenant';
+}
+
 export function OnboardingPage() {
   const navigate = useNavigate();
   const { settings, saveSettings, markOnboardingComplete } = useTenant();
@@ -69,6 +79,7 @@ export function OnboardingPage() {
   const apiBase = (
     (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:4000'
   ).replace(/\/$/, '');
+  const tenantWebhookId = resolveTenantWebhookId(draft?.id, settings?.id);
 
   useEffect(() => {
     setDraft(settings);
@@ -245,6 +256,11 @@ export function OnboardingPage() {
               <small>{entry.detail}</small>
             </button>
           ))}
+
+          <div className="onboarding-sidebar-note">
+            <strong>By the end of setup</strong>
+            <p className="helper">You should be able to place a test call and see a clear request in the inbox.</p>
+          </div>
         </aside>
 
         <article className="settings-card onboarding-step">
@@ -258,8 +274,20 @@ export function OnboardingPage() {
 
           <div className="card-divider" />
 
+          <div className="onboarding-callout">
+            <strong>What this step does</strong>
+            <p>{STEP_OUTCOMES[step]}</p>
+          </div>
+
           {step === 0 ? (
             <>
+              <div className="onboarding-checklist">
+                <strong>Have this ready</strong>
+                <p className="helper">
+                  Business name, main phone, and optionally the business website.
+                </p>
+              </div>
+
               <div className="inline-toggle">
                 <div>
                   <strong>Optional: import from website</strong>
@@ -318,6 +346,14 @@ export function OnboardingPage() {
 
           {step === 1 ? (
             <>
+              <div className="onboarding-checklist">
+                <strong>Choose a real handoff number</strong>
+                <p className="helper">
+                  This should be the phone for the person on call, front desk, or manager who must
+                  receive urgent requests.
+                </p>
+              </div>
+
               <label>
                 <span>Urgent handoff phone</span>
                 <input
@@ -330,13 +366,14 @@ export function OnboardingPage() {
 
               <div className="inline-toggle">
                 <div>
-                  <strong>Important: where to set your Twilio number</strong>
+                  <strong>If someone else manages your phone routing</strong>
                   <p className="helper">
-                    Your Twilio bought number is configured in Twilio Console, not in this form.
+                    Send them the technical details below. Most operators should only need to set
+                    the urgent handoff number in this step.
                   </p>
-                  <p className="helper">Set Twilio webhooks to:</p>
+                  <p className="helper">Twilio webhook details:</p>
                   <p className="helper">
-                    Inbound: <code>{apiBase}/v1/telephony/inbound/demo-tenant</code>
+                    Inbound: <code>{apiBase}/v1/telephony/inbound/{tenantWebhookId}</code>
                   </p>
                   <p className="helper">
                     Status: <code>{apiBase}/v1/telephony/status</code>
@@ -353,6 +390,14 @@ export function OnboardingPage() {
 
           {step === 2 ? (
             <>
+              <div className="onboarding-checklist">
+                <strong>What to include here</strong>
+                <p className="helper">
+                  Add hours, service areas, common requests, pricing notes, and anything a staff
+                  member would need to answer naturally on the phone.
+                </p>
+              </div>
+
               <div className="settings-button-group">
                 <button
                   type="button"
@@ -395,9 +440,11 @@ export function OnboardingPage() {
                 <div>
                   <strong>Real call test checklist</strong>
                   <p className="helper">1. Save this step</p>
-                  <p className="helper">2. Call your Twilio number</p>
-                  <p className="helper">3. Ask a policy question from your business notes</p>
-                  <p className="helper">4. Confirm the new request appears in the dashboard</p>
+                  <p className="helper">2. Call your business routing number</p>
+                  <p className="helper">3. Ask about hours, a service, or pricing</p>
+                  <p className="helper">
+                    4. Confirm the request appears in the inbox with a useful summary
+                  </p>
                 </div>
               </div>
             </>

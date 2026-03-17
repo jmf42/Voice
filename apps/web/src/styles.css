@@ -1902,6 +1902,33 @@ a:focus-visible {
   gap: 0.65rem;
 }
 
+.onboarding-callout,
+.onboarding-checklist,
+.onboarding-sidebar-note {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  padding: 0.9rem 1rem;
+}
+
+.onboarding-callout {
+  border-color: rgba(0, 243, 255, 0.18);
+  background: linear-gradient(135deg, rgba(0, 243, 255, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+.onboarding-sidebar-note {
+  margin-top: 0.85rem;
+}
+
+.onboarding-callout strong,
+.onboarding-checklist strong,
+.onboarding-sidebar-note strong {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
 .onboarding-step-icon {
   color: #00f3ff;
   flex-shrink: 0;

@@ -39,6 +39,7 @@ function markOnboardingComplete(): void {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -131,8 +132,27 @@ describe('web app', () => {
       'href',
       '#capabilities',
     );
-    expect(screen.getByRole('link', { name: 'System' })).toHaveAttribute('href', '#system');
+    expect(screen.getByRole('link', { name: 'How it works' })).toHaveAttribute('href', '#system');
+    expect(screen.getByRole('link', { name: 'Operator view' })).toHaveAttribute(
+      'href',
+      '#operator-view',
+    );
     expect(screen.getByRole('link', { name: 'Metrics' })).toHaveAttribute('href', '#metrics');
+  });
+
+  it('shows an operator-focused landing section', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByRole('heading', {
+        name: /Built to feel like a clear front desk, not another AI dashboard/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/What the team sees/i)).toBeInTheDocument();
   });
 
   it('renders login when unauthenticated', async () => {
@@ -198,6 +218,99 @@ describe('web app', () => {
 
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'What callers should know' })).toBeInTheDocument();
+  });
+
+  it('shows failed SMS events clearly on the call details page', async () => {
+    localStorage.setItem('dispatchos_token', 'tenant:demo-tenant:role:operator:user:1');
+    markOnboardingComplete();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/v1/settings')) {
+          return new Response(JSON.stringify(settingsResponse), { status: 200 });
+        }
+
+        if (url.includes('/v1/jobs/job-1')) {
+          return new Response(
+            JSON.stringify({
+              job: {
+                id: 'job-1',
+                tenantId: 'demo-tenant',
+                callId: 'call-1',
+                status: 'new',
+                booking_status: 'not_requested',
+                caller_phone: '+41779802809',
+                address_raw: 'Theodore Weber 36',
+                address_confirmed: true,
+                urgency: 'normal',
+                preferred_time_window: 'specific',
+                job_summary: 'Customer asked for an appointment today.',
+                service_hint: 'Emergency Door Opening',
+                language_detected: 'en',
+                transcript: '[realtime:user] Can you book a meeting for today?',
+                createdAt: '2026-03-17T07:30:58.098Z',
+                updatedAt: '2026-03-17T07:32:33.107Z',
+              },
+              timeline: [
+                {
+                  id: 'audit-1',
+                  type: 'CALL_STARTED',
+                  createdAt: '2026-03-17T07:30:58.098Z',
+                  payload: {},
+                },
+                {
+                  id: 'audit-2',
+                  type: 'SMS_SENT',
+                  createdAt: '2026-03-17T07:32:33.964Z',
+                  payload: {
+                    status: 'failed',
+                    messageId: 'msg-1',
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+
+        if (url.includes('/v1/jobs/stream')) {
+          const payload = JSON.stringify({ items: [] });
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+              controller.close();
+            },
+          });
+          return new Response(stream, {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          });
+        }
+
+        if (url.includes('/v1/jobs')) {
+          return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        }
+
+        if (url.includes('/health')) {
+          return new Response(JSON.stringify(healthResponse), { status: 200 });
+        }
+
+        return new Response('{}', { status: 200 });
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/calls/job-1']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Text message failed')).toBeInTheDocument();
+    expect(await screen.findByText('Confirmation text failed')).toBeInTheDocument();
   });
 
   it('shows a simpler dashboard workspace with quick actions', async () => {
@@ -271,6 +384,61 @@ describe('web app', () => {
     expect(await screen.findByText('New and recent calls')).toBeInTheDocument();
     expect(await screen.findByText('Do this now')).toBeInTheDocument();
     expect(await screen.findByText('Finish these before going live')).toBeInTheDocument();
+    expect(await screen.findByText(/Locked out of apartment/i)).toBeInTheDocument();
+  });
+
+  it('shows a guided empty state when the inbox has no calls yet', async () => {
+    localStorage.setItem('dispatchos_token', 'tenant:demo-tenant:role:operator:user:1');
+    markOnboardingComplete();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/v1/settings')) {
+          return new Response(JSON.stringify(settingsResponse), { status: 200 });
+        }
+
+        if (url.includes('/health')) {
+          return new Response(JSON.stringify(healthResponse), { status: 200 });
+        }
+
+        if (url.includes('/v1/jobs/stream')) {
+          const payload = JSON.stringify({ items: [] });
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+              controller.close();
+            },
+          });
+          return new Response(stream, {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          });
+        }
+
+        if (url.includes('/v1/jobs')) {
+          return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        }
+
+        return new Response('{}', { status: 200 });
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('No calls have arrived yet.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Create a test request/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Open setup/i })[0]).toHaveAttribute(
+      'href',
+      '/settings',
+    );
   });
 
   it('shows calendar follow-up areas clearly', async () => {
@@ -407,6 +575,69 @@ describe('web app', () => {
     expect(viewCallLink).toHaveAttribute('href', '/calls/job-1');
   });
 
+  it('groups a near-midnight booking under the local day heading', async () => {
+    localStorage.setItem('dispatchos_token', 'tenant:demo-tenant:role:operator:user:1');
+    markOnboardingComplete();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/v1/settings')) {
+          return new Response(JSON.stringify(settingsResponse), { status: 200 });
+        }
+
+        if (url.includes('/health')) {
+          return new Response(JSON.stringify(healthResponse), { status: 200 });
+        }
+
+        if (url.includes('/v1/jobs')) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: 'job-late',
+                  tenantId: 'demo-tenant',
+                  callId: 'call-late',
+                  status: 'confirmed',
+                  booking_status: 'booked',
+                  confirmed_slot_start: '2026-03-08T23:30:00.000Z',
+                  confirmed_slot_end: '2026-03-09T00:30:00.000Z',
+                  caller_phone: '+41225550123',
+                  address_raw: 'Rue du Rhone 21 Geneva',
+                  address_confirmed: true,
+                  urgency: 'normal',
+                  preferred_time_window: 'evening',
+                  job_summary: 'Locked out of apartment',
+                  service_hint: 'Emergency lockout',
+                  createdAt: '2026-03-07T09:00:00.000Z',
+                  updatedAt: '2026-03-07T09:00:00.000Z',
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response('{}', { status: 200 });
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/calendar']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const expectedHeading = new Intl.DateTimeFormat(undefined, {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+    }).format(new Date(2026, 2, 9));
+    expect(await screen.findByRole('heading', { name: expectedHeading })).toBeInTheDocument();
+  });
+
   it('treats incomplete readiness responses as needing verification', async () => {
     localStorage.setItem('dispatchos_token', 'tenant:demo-tenant:role:operator:user:1');
     markOnboardingComplete();
@@ -498,6 +729,52 @@ describe('web app', () => {
 
     expect(await screen.findByRole('heading', { name: 'Set up your business' })).toBeInTheDocument();
     expect(screen.queryByText(/Imported details:/i)).not.toBeInTheDocument();
+  });
+
+  it('shows tenant-specific webhook urls during onboarding', async () => {
+    localStorage.setItem('dispatchos_token', 'tenant:tenant-42:role:operator:user:1');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/v1/settings')) {
+          return new Response(
+            JSON.stringify({
+              settings: {
+                ...settingsResponse.settings,
+                id: 'tenant-42',
+                tenantId: 'tenant-42',
+                business_context: '',
+                faqs: [],
+                services: [],
+                website_url: '',
+              },
+            }),
+            { status: 200 },
+          );
+        }
+
+        if (url.includes('/health')) {
+          return new Response(JSON.stringify(healthResponse), { status: 200 });
+        }
+
+        return new Response('{}', { status: 200 });
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/onboarding']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Set up your business' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }));
+    expect(await screen.findByText('Urgent handoff phone')).toBeInTheDocument();
+    expect(screen.getByText(/tenant-42/, { selector: 'code' })).toBeInTheDocument();
+    expect(screen.queryByText(/inbound\/demo-tenant/i)).not.toBeInTheDocument();
   });
 
   it('warns when settings are not being saved to a durable database', async () => {

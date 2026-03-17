@@ -76,6 +76,7 @@ export function DashboardPage() {
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [calls, searchQuery]);
+  const hasSearchQuery = searchQuery.trim().length > 0;
 
   const urgentCount = useMemo(
     () => calls.filter((call) => call.call_intent === 'urgent_escalation').length,
@@ -200,10 +201,46 @@ export function DashboardPage() {
 
           <div className="mt-6 cards">
             {shownCalls.length === 0 ? (
-              <div className="empty-state">
-                <Icon name="check" size={28} />
-                <p>No calls match this search yet.</p>
-              </div>
+              hasSearchQuery ? (
+                <div className="empty-state">
+                  <Icon name="search" size={28} />
+                  <p>No calls match this search yet.</p>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setSearchQuery('')}
+                    disabled={actionBusy}
+                  >
+                    Clear search
+                  </button>
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <Icon name="phone" size={28} />
+                  <p>No calls have arrived yet.</p>
+                  <span className="helper">
+                    Start with a test request or make a real test call to confirm the inbox flow.
+                  </span>
+                  <div className="actions">
+                    {role === 'operator' ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateSampleRequest()}
+                        disabled={loading || actionBusy}
+                      >
+                        <Icon name="phone" size={14} />
+                        Create a test request
+                      </button>
+                    ) : null}
+                    <Link
+                      to="/settings"
+                      className="flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/8"
+                    >
+                      Open setup
+                    </Link>
+                  </div>
+                </div>
+              )
             ) : (
               shownCalls.map((call) => <CallCard key={call.id} call={call} />)
             )}

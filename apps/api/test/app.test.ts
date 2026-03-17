@@ -1677,6 +1677,119 @@ describe('api', () => {
     }
   }, 12_000);
 
+  it('marks the job manual when a caller requests a specific slot but no live calendar connection is available', async () => {
+    const prevMode = process.env.VOICE_FLOW_MODE;
+    const prevBaseUrl = process.env.API_BASE_URL;
+    process.env.VOICE_FLOW_MODE = 'realtime';
+
+    const freePort = await new Promise<number>((resolve, reject) => {
+      const server = createServer();
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        const port = typeof address === 'object' && address ? Number(address.port) : 4109;
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve(port);
+        });
+      });
+    });
+    process.env.API_BASE_URL = `http://127.0.0.1:${freePort}`;
+
+    const store = new InMemoryStore();
+    await store.patchTenantSettings('demo-tenant', { calendar_enabled: true });
+    const realtimeConversation = new FakeRealtimeConversationService();
+    const calendar = new FakeCalendarService();
+    const app = createApp({ store, calendar: calendar as never, realtimeConversation });
+    await app.listen({ host: '127.0.0.1', port: freePort });
+
+    try {
+      const inbound = await app.inject({
+        method: 'POST',
+        url: '/v1/telephony/inbound/demo-tenant',
+        payload: 'CallSid=CA-REALTIME-OPENAI-NO-CALENDAR&From=%2B4179000020',
+        headers: formHeaders,
+      });
+      expect(inbound.statusCode).toBe(200);
+
+      const match = inbound.body.match(/url="([^"]+)"/);
+      expect(match?.[1]).toBeTruthy();
+      const url = (match?.[1] ?? '').replaceAll('&amp;', '&');
+
+      await new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(url);
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error('Timed out waiting for no-calendar realtime responses'));
+        }, 4000);
+
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'setup' }));
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: 'I need my apartment door opened without damaging the lock.',
+            }),
+          );
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: 'Theodore Weber 36 Geneva, Switzerland.',
+            }),
+          );
+          ws.send(
+            JSON.stringify({
+              type: 'prompt',
+              voicePrompt: 'March 8 2026 at 9 PM works for me.',
+            }),
+          );
+          setTimeout(() => ws.close(), 300);
+        });
+
+        ws.on('error', (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+
+        ws.on('close', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      let items: Array<{
+        booking_status?: string;
+        confirmed_slot_start?: string;
+      }> = [];
+
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const jobs = await app.inject({ method: 'GET', url: '/v1/jobs', headers: authHeader });
+        expect(jobs.statusCode).toBe(200);
+        items = JSON.parse(jobs.body).items;
+        if (items.length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      expect(items.length).toBeGreaterThan(0);
+      expect(items[0]?.booking_status).toBe('manual_required');
+      expect(items[0]?.confirmed_slot_start).toBeUndefined();
+      expect(calendar.isSlotAvailableMock).not.toHaveBeenCalled();
+      expect(calendar.createOrUpdateBookingMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+      if (prevMode === undefined) {
+        delete process.env.VOICE_FLOW_MODE;
+      } else {
+        process.env.VOICE_FLOW_MODE = prevMode;
+      }
+      if (prevBaseUrl === undefined) {
+        delete process.env.API_BASE_URL;
+      } else {
+        process.env.API_BASE_URL = prevBaseUrl;
+      }
+    }
+  }, 12_000);
+
   it('streams live job updates for the dashboard', async () => {
     const freePort = await new Promise<number>((resolve, reject) => {
       const server = createServer();
@@ -1956,5 +2069,68 @@ describe('api', () => {
     } else {
       process.env.STORE_MODE = prevStoreMode;
     }
+  });
+
+  it('retries a queued calendar booking through the internal recovery endpoint', async () => {
+    const previousSecret = process.env.QUEUE_SHARED_SECRET;
+    process.env.QUEUE_SHARED_SECRET = 'queue-secret';
+
+    const store = new InMemoryStore();
+    await store.patchTenantSettings('demo-tenant', { calendar_enabled: true });
+    await store.upsertCalendarConnection({
+      tenantId: 'demo-tenant',
+      provider: 'google',
+      refreshToken: 'refresh-token',
+      accessToken: 'access-token',
+      calendarId: 'primary',
+    });
+
+    const call = await store.startCall({
+      tenantId: 'demo-tenant',
+      callSid: 'CA_RETRY_CALENDAR',
+      callerPhone: '+41225550123',
+    });
+    const finalized = await store.finalizeCall({
+      callId: call.id,
+      outcome: 'QUALIFIED_JOB',
+      jobDraft: {
+        caller_phone: '+41225550123',
+        address_raw: 'Rue du Rhone 21 Geneva',
+        address_confirmed: true,
+        urgency: 'normal',
+        preferred_time_window: 'morning',
+        job_summary: 'Boiler service request',
+        service_hint: 'Boiler service',
+        risk_flags: [],
+        language_detected: 'en',
+      },
+    });
+
+    const calendar = new FakeCalendarService();
+    const app = createApp({ store, calendar: calendar as never });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/internal/queue/calendar-write',
+      headers: {
+        'content-type': 'application/json',
+        'x-queue-secret': 'queue-secret',
+      },
+      payload: JSON.stringify({
+        tenantId: 'demo-tenant',
+        jobId: finalized.job.id,
+        slotStart: '2026-03-08T20:00:00.000Z',
+        slotEnd: '2026-03-08T21:00:00.000Z',
+      }),
+    });
+
+    if (previousSecret === undefined) delete process.env.QUEUE_SHARED_SECRET;
+    else process.env.QUEUE_SHARED_SECRET = previousSecret;
+
+    expect(res.statusCode).toBe(200);
+    const updated = await store.getJob('demo-tenant', finalized.job.id);
+    expect(updated?.booking_status).toBe('booked');
+    expect(updated?.external_event_id).toBe('evt_demo');
+    expect(calendar.createOrUpdateBookingMock).toHaveBeenCalled();
   });
 });

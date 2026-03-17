@@ -10,6 +10,13 @@ function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function localDayKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function formatDayLabel(dayKey: string): string {
   return new Intl.DateTimeFormat(undefined, {
     weekday: 'long',
@@ -66,18 +73,14 @@ export function CalendarPage() {
   const grouped = useMemo(() => {
     const output = new Map<string, Appointment[]>();
     for (const apt of displayedAppointments) {
-      const day = startOfLocalDay(new Date(apt.confirmed_slot_start ?? apt.createdAt))
-        .toISOString()
-        .slice(0, 10);
+      const day = localDayKey(startOfLocalDay(new Date(apt.confirmed_slot_start ?? apt.createdAt)));
       output.set(day, [...(output.get(day) ?? []), apt]);
     }
     return [...output.entries()];
   }, [displayedAppointments]);
 
   const todayCount = useMemo(
-    () =>
-      grouped.find(([d]) => d === startOfLocalDay(new Date()).toISOString().slice(0, 10))?.[1]
-        .length ?? 0,
+    () => grouped.find(([d]) => d === localDayKey(startOfLocalDay(new Date())))?.[1].length ?? 0,
     [grouped],
   );
   const manualBookingCount = useMemo(

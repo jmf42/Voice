@@ -3,6 +3,7 @@ import twilio from 'twilio';
 import type { Worker } from 'bullmq';
 import { QueueManager, type QueueJobPayload, type QueueName } from './queues.js';
 import { buildWorkerRuntimeSummary } from './runtime.js';
+import { retryCalendarWriteJob } from './calendar-retry.js';
 
 function isTwilioConfigured(accountSid: string, authToken: string, phone: string): boolean {
   return !accountSid.startsWith('AC_TEST') && authToken !== 'token' && !phone.includes('00000000');
@@ -21,6 +22,7 @@ async function main() {
     TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER ?? '+41000000000',
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_MODEL: process.env.OPENAI_MODEL,
+    QUEUE_SHARED_SECRET: process.env.QUEUE_SHARED_SECRET,
     STORE_MODE: process.env.STORE_MODE,
     QUEUE_MODE: process.env.QUEUE_MODE,
   });
@@ -91,10 +93,16 @@ async function main() {
   });
 
   const calendarWorker = manager.createWorker('calendar-write', async (job) => {
-    console.warn('calendar-write queued for manual retry', {
-      tenantId: job.tenantId,
-      idempotencyKey: job.idempotencyKey,
-      payload: job.payload,
+    await retryCalendarWriteJob({
+      apiBaseUrl: env.API_BASE_URL,
+      queueSecret: env.QUEUE_SHARED_SECRET,
+      payload: {
+        tenantId: job.tenantId,
+        jobId: String(job.payload.jobId ?? ''),
+        slotStart:
+          typeof job.payload.slotStart === 'string' ? job.payload.slotStart : undefined,
+        slotEnd: typeof job.payload.slotEnd === 'string' ? job.payload.slotEnd : undefined,
+      },
     });
   });
 
